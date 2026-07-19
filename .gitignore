@@ -1,0 +1,10 @@
+.DS_Store
+Thumbs.db
+
+*.log
+*.bak
+*.tmp
+
+.idea/
+.vscode/
+!.vscode/extensions.json
