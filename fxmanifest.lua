@@ -3,7 +3,7 @@ game 'gta5'
 
 author 'SIKU'
 description 'The core of the SIKU ecosystem.'
-version '0.0.1'
+version '0.1.0'
 
 name 'siku_core'
 
