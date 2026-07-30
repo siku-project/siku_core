@@ -12,20 +12,24 @@ lua54 'yes'
 shared_scripts {
   'shared/init.lua',
   'config/callback.lua',
+  'config/spatial.lua',
   'shared/lib/**/*.lua',
 }
 
 server_scripts {
   '@oxmysql/lib/MySQL.lua',
+  'server/init.lua',
   'config/version.lua',
   'config/migration.lua',
+  'config/permissions.lua',
   'server/modules/**/*.lua',
   'server/lib/**/*.lua',
-  'server/init.lua',
 }
 
 client_scripts {
+  'config/world.lua',
   'client/lib/**/*.lua',
+  'client/modules/**/*.lua',
 }
 
 files {

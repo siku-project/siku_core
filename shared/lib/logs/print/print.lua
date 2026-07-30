@@ -1,5 +1,3 @@
-Siku.print = {}
-
 local RESOURCE_NAME <const> = GetCurrentResourceName()
 local DEFAULT_LEVEL <const> = 'info'
 local RESET <const> = '^7'

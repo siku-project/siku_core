@@ -1,7 +1,11 @@
-Siku.VersionCheck('siku-project/siku_core')
+Siku.bucket = {}
+Siku.cron = {}
+Siku.permissions = {}
 
 MySQL.ready(function()
-    Siku.RunMigration(MigrationConfig)
+  Siku.VersionCheck('siku-project/siku_core')
+  Siku.RunMigration(MigrationConfig)
+  _SikuInternal.InitPermissions()
 
-    Siku.print.success("Siku core initialization finished ! Framework Ready")
+  Siku.print.success('Siku core initialization finished ! Framework Ready')
 end)
