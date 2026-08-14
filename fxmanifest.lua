@@ -24,6 +24,7 @@ server_scripts {
   'config/permissions.lua',
   'server/modules/**/*.lua',
   'server/lib/**/*.lua',
+  'server/classes/**/*.lua',
 }
 
 client_scripts {
