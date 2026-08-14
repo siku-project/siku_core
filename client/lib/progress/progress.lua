@@ -12,17 +12,59 @@ local function isReady()
   return false
 end
 
---- Start a timed progress on this client. It replaces any active progress,
---- which is settled as cancelled.
----@param data table The progress payload (shape, label, icon, labelPosition, duration, direction, mode, color, showPercentage, showTime, background, size, position).
+--- Build a timed payload from the caller's data, forcing the shape and
+--- stripping the other family fields.
+---@param data table The caller payload.
+---@param shape string The forced shape: 'bar' or 'circle'.
+---@return table payload The timed payload.
+local function buildPayload(data, shape)
+  local payload = {}
+  for key, value in pairs(data) do
+    payload[key] = value
+  end
+
+  payload.shape = shape
+  payload.indeterminate = nil
+  payload.control = nil
+  payload.steps = nil
+
+  return payload
+end
+
+--- Show a timed progress bar on this client. It replaces any active
+--- progress, which is settled as cancelled.
+---@param data table The progress payload (label, icon, duration, direction, mode, color, showPercentage, showTime, background, position).
 ---@param onFinish? fun(result: string) Invoked once with 'done', 'cancelled' or 'failed'.
 ---@return boolean started Whether the progress was accepted.
-function Siku.Progress(data, onFinish)
+function Siku.ProgressBar(data, onFinish)
   if not isReady() then
     return false
   end
 
-  return exports[PROGRESS_RESOURCE]:Start(data, onFinish)
+  if type(data) ~= 'table' then
+    Siku.print.error(('ProgressBar expected a table payload, got %s'):format(type(data)))
+    return false
+  end
+
+  return exports[PROGRESS_RESOURCE]:Start(buildPayload(data, 'bar'), onFinish)
+end
+
+--- Show a timed progress circle on this client. It replaces any active
+--- progress, which is settled as cancelled.
+---@param data table The progress payload (label, icon, labelPosition, duration, direction, mode, color, showPercentage, showTime, size, position).
+---@param onFinish? fun(result: string) Invoked once with 'done', 'cancelled' or 'failed'.
+---@return boolean started Whether the progress was accepted.
+function Siku.ProgressCircle(data, onFinish)
+  if not isReady() then
+    return false
+  end
+
+  if type(data) ~= 'table' then
+    Siku.print.error(('ProgressCircle expected a table payload, got %s'):format(type(data)))
+    return false
+  end
+
+  return exports[PROGRESS_RESOURCE]:Start(buildPayload(data, 'circle'), onFinish)
 end
 
 --- End the active progress in success — the gauge snaps to full.

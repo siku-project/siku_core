@@ -12,28 +12,59 @@ local function isReady()
   return false
 end
 
---- Start a controlled progress on this client, driven from code through
+--- Build a controlled payload from the caller's data, forcing the shape,
+--- guaranteeing the control table and stripping the other family fields.
+---@param data table The caller payload.
+---@param shape string The forced shape: 'bar' or 'circle'.
+---@return table payload The controlled payload.
+local function buildPayload(data, shape)
+  local payload = {}
+  for key, value in pairs(data) do
+    payload[key] = value
+  end
+
+  payload.shape = shape
+  payload.indeterminate = nil
+  payload.control = type(data.control) == 'table' and data.control or {}
+  payload.steps = nil
+
+  return payload
+end
+
+--- Show a controlled progress bar on this client, driven from code through
 --- Siku.SetProgressValue, Siku.SetProgressHeld and Siku.PulseProgress.
 ---@param data table The progress payload; control ({ mode, riseRate, fallRate, pulseGain, startAt, completeAtFull, failAtEmpty }) defaults to an empty table.
 ---@param onFinish? fun(result: string) Invoked once with 'done', 'cancelled' or 'failed'.
 ---@return boolean started Whether the progress was accepted.
-function Siku.ControlledProgress(data, onFinish)
+function Siku.ControlledProgressBar(data, onFinish)
   if not isReady() then
     return false
   end
 
   if type(data) ~= 'table' then
-    Siku.print.error(('ControlledProgress expected a table payload, got %s'):format(type(data)))
+    Siku.print.error(('ControlledProgressBar expected a table payload, got %s'):format(type(data)))
     return false
   end
 
-  local payload = {}
-  for key, value in pairs(data) do
-    payload[key] = value
-  end
-  payload.control = type(data.control) == 'table' and data.control or {}
+  return exports[PROGRESS_RESOURCE]:Start(buildPayload(data, 'bar'), onFinish)
+end
 
-  return exports[PROGRESS_RESOURCE]:Start(payload, onFinish)
+--- Show a controlled progress circle on this client, driven from code through
+--- Siku.SetProgressValue, Siku.SetProgressHeld and Siku.PulseProgress.
+---@param data table The progress payload; control ({ mode, riseRate, fallRate, pulseGain, startAt, completeAtFull, failAtEmpty }) defaults to an empty table.
+---@param onFinish? fun(result: string) Invoked once with 'done', 'cancelled' or 'failed'.
+---@return boolean started Whether the progress was accepted.
+function Siku.ControlledProgressCircle(data, onFinish)
+  if not isReady() then
+    return false
+  end
+
+  if type(data) ~= 'table' then
+    Siku.print.error(('ControlledProgressCircle expected a table payload, got %s'):format(type(data)))
+    return false
+  end
+
+  return exports[PROGRESS_RESOURCE]:Start(buildPayload(data, 'circle'), onFinish)
 end
 
 --- Set the value of the active controlled progress ('direct' behavior).

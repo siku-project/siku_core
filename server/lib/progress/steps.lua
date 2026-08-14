@@ -12,23 +12,41 @@ local function isReady()
   return false
 end
 
---- Start a stepped progress on a player, validated step by step through
+--- Build a stepped payload from the caller's data, forcing the bar shape
+--- and stripping the other family fields.
+---@param data table The caller payload.
+---@return table payload The stepped payload.
+local function buildPayload(data)
+  local payload = {}
+  for key, value in pairs(data) do
+    payload[key] = value
+  end
+
+  payload.shape = 'bar'
+  payload.indeterminate = nil
+  payload.control = nil
+  payload.steps = data.steps
+
+  return payload
+end
+
+--- Show a stepped progress bar on a player, validated step by step through
 --- Siku.CompleteProgressStep and Siku.SetProgressSteps.
 ---@param source number The player's server id.
----@param data table The progress payload; steps (1..10) is required.
+---@param data table The progress payload; steps (1..10) is required (label, icon, color, showPercentage, background, position).
 ---@param onFinish? fun(result: string) Invoked once with 'done', 'cancelled' or 'failed'.
 ---@return boolean started Whether the progress was accepted.
-function Siku.SteppedProgress(source, data, onFinish)
+function Siku.StepProgress(source, data, onFinish)
   if not isReady() then
     return false
   end
 
   if type(data) ~= 'table' or type(data.steps) ~= 'number' then
-    Siku.print.error('SteppedProgress expected a table payload with a numeric steps field')
+    Siku.print.error('StepProgress expected a table payload with a numeric steps field')
     return false
   end
 
-  return exports[PROGRESS_RESOURCE]:Start(source, data, onFinish)
+  return exports[PROGRESS_RESOURCE]:Start(source, buildPayload(data), onFinish)
 end
 
 --- Validate the next step of the active stepped progress of a player.
