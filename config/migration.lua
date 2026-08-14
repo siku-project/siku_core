@@ -87,10 +87,6 @@ MigrationConfig = {
         columns = {
           { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
           { name = 'user_id', type = 'INT', unsigned = true, notNull = true },
-          { name = 'firstname', type = 'VARCHAR(50)', notNull = true },
-          { name = 'lastname', type = 'VARCHAR(50)', notNull = true },
-          { name = 'date_of_birth', type = 'DATE', default = 'NULL' },
-          { name = 'gender', type = 'VARCHAR(20)', default = 'NULL' },
           { name = 'ped_model', type = 'VARCHAR(60)', notNull = true },
           { name = 'x', type = 'FLOAT', notNull = true },
           { name = 'y', type = 'FLOAT', notNull = true },
@@ -103,7 +99,6 @@ MigrationConfig = {
         },
         indexes = {
           { name = 'idx_characters_user_id', columns = { 'user_id' } },
-          { name = 'idx_characters_name', columns = { 'lastname', 'firstname' } },
         },
         foreignKeys = {
           {

@@ -7,7 +7,7 @@ PermissionSeedConfig = {
   ---   isPrimary = true  → hierarchical role, only ONE per character, uses inheritance chain
   ---   isPrimary = false → secondary role, MULTIPLE per character, no inheritance, additive permissions
   ---
-  --- Permission format: something.something (e.g., "chat.staff", "police.mdt_access").
+  --- Permission format: something.something (e.g., "chat.staff.join", "police.mdt_access").
   --- The dot separator is required for wildcards to work.
   ---
   --- Wildcards:
@@ -15,7 +15,7 @@ PermissionSeedConfig = {
   ---   "*.staff"  → any permission ending with ".staff"
   ---   "*"        → ALL permissions (superadmin)
   --- Negation:
-  ---   "-chat.staff" → explicitly denies this permission even if a wildcard grants it
+  ---   "-chat.staff.join" → explicitly denies this permission even if a wildcard grants it
   ---
   --- Inheritance: inheritsFrom creates a hierarchy chain.
   ---   Owner > Admin > Dev > Moderator > User
@@ -35,7 +35,7 @@ PermissionSeedConfig = {
       isPrimary = true,
       inheritsFrom = 'user',
       permissions = {
-        'chat.staff',
+        'chat.staff.join',
       },
     },
     {
