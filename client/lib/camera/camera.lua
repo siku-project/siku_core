@@ -207,6 +207,20 @@ function Siku.camera.getTransform(camera)
   return GetCamCoord(camera), GetCamRot(camera, ROTATION_ORDER), GetCamFov(camera)
 end
 
+--- Computes the rotation a camera would need to face a target from a
+--- position — handy to build spline nodes or plan a shot in advance.
+---@param coords vector3 The camera position.
+---@param target vector3 The world position to face.
+---@return vector3 rotation The rotation in degrees (pitch, roll, yaw).
+function Siku.camera.rotationTo(coords, target)
+  local direction <const> = target - coords
+  local horizontal <const> = math.sqrt(direction.x * direction.x + direction.y * direction.y)
+  local pitch <const> = math.deg(math.atan(direction.z, horizontal))
+  local yaw <const> = math.deg(math.atan(-direction.x, direction.y))
+
+  return vector3(pitch, 0.0, yaw)
+end
+
 --- Rotates a camera so it faces a world position, without locking it
 --- the way pointing does — the rotation stays freely editable after.
 ---@param camera number The camera handle.
@@ -215,13 +229,9 @@ end
 function Siku.camera.lookAt(camera, target)
   internal.getState(camera)
 
-  local from <const> = GetCamCoord(camera)
-  local direction <const> = target - from
-  local horizontal <const> = math.sqrt(direction.x * direction.x + direction.y * direction.y)
-  local pitch <const> = math.deg(math.atan(direction.z, horizontal))
-  local yaw <const> = math.deg(math.atan(-direction.x, direction.y))
+  local rotation <const> = Siku.camera.rotationTo(GetCamCoord(camera), target)
 
-  SetCamRot(camera, pitch, 0.0, yaw, ROTATION_ORDER)
+  SetCamRot(camera, rotation.x, rotation.y, rotation.z, ROTATION_ORDER)
 end
 
 --- Locks a camera aim onto a world position.
