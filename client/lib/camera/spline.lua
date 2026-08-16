@@ -25,7 +25,7 @@ function Siku.camera.createSpline(options)
     Siku.print.throw('Camera spline requires at least 2 nodes')
   end
 
-  local camera <const> = CreateCam(SPLINE_CAMERA, false)
+  local camera <const> = CreateCam(SPLINE_CAMERA, true)
 
   SetCamFov(camera, internal.clampFov(options.fov or CameraConfig.defaultFov))
 
