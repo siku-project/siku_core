@@ -432,6 +432,19 @@ local function normalizeArguments(primary, arguments)
   return normalized
 end
 
+---Checks that a value can be called, accepting the callable function
+---references produced when a function crosses a resource export boundary.
+---@param value any The value to check.
+---@return boolean callable Whether the value is callable.
+local function isCallable(value)
+  if type(value) == 'function' then
+    return true
+  end
+
+  local meta <const> = getmetatable(value)
+  return meta ~= nil and meta.__call ~= nil
+end
+
 ---Registers a server command with typed arguments, permission, cooldown and chat suggestion.
 ---The handler is invoked with (source, args, rawArgs) where args is indexed by argument name.
 ---Argument types: string, number, integer, boolean, player (id or 'me'), duration (30s/15m/2h/7d),
@@ -455,7 +468,7 @@ function Siku.RegisterCommand(name, callback, options)
     end
   end
 
-  if type(callback) ~= 'function' then
+  if not isCallable(callback) then
     Siku.print.error(('RegisterCommand %q: callback must be a function'):format(names[1]))
     return false
   end
@@ -566,7 +579,7 @@ function Siku.RegisterCommandType(typeName, parser)
     return false
   end
 
-  if type(parser) ~= 'function' then
+  if not isCallable(parser) then
     Siku.print.error(('RegisterCommandType %q: parser must be a function'):format(typeName))
     return false
   end
