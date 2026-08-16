@@ -32,6 +32,7 @@ server_scripts {
 
 client_scripts {
   'config/world.lua',
+  'config/camera.lua',
   'client/lib/**/*.lua',
   'client/modules/**/*.lua',
 }
