@@ -36,7 +36,7 @@ MigrationConfig = {
     ---
     --- The pair (resource, version) is recorded in `siku_migrations`
     --- once applied, and a version already recorded is never replayed.
-    version = '1.1.0',
+    version = '1.2.0',
 
     --- The tables this resource owns.
     ---
@@ -87,7 +87,15 @@ MigrationConfig = {
         columns = {
           { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
           { name = 'user_id', type = 'INT', unsigned = true, notNull = true },
+          { name = 'first_name', type = 'VARCHAR(50)', notNull = true },
+          { name = 'last_name', type = 'VARCHAR(50)', notNull = true },
+          { name = 'dob', type = 'DATE', notNull = true },
+          { name = 'gender', type = 'VARCHAR(10)', notNull = true },
+          { name = 'height', type = 'SMALLINT', unsigned = true, notNull = true, default = 175 },
+          { name = 'nationality', type = 'VARCHAR(2)', notNull = true },
+          { name = 'birthplace', type = 'VARCHAR(100)', notNull = true },
           { name = 'ped_model', type = 'VARCHAR(60)', notNull = true },
+          { name = 'appearance', type = 'LONGTEXT', default = 'NULL' },
           { name = 'x', type = 'FLOAT', notNull = true },
           { name = 'y', type = 'FLOAT', notNull = true },
           { name = 'z', type = 'FLOAT', notNull = true },

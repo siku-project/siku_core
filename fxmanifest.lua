@@ -13,6 +13,8 @@ shared_scripts {
   'shared/init.lua',
   'config/callback.lua',
   'config/spatial.lua',
+  'config/translation.lua',
+  'shared/utils/locale.lua',
   'shared/lib/**/*.lua',
 }
 
@@ -22,6 +24,7 @@ server_scripts {
   'config/version.lua',
   'config/migration.lua',
   'config/permissions.lua',
+  'config/connection.lua',
   'server/modules/**/*.lua',
   'server/lib/**/*.lua',
   'server/classes/**/*.lua',
@@ -35,6 +38,7 @@ client_scripts {
 
 files {
   'init.lua',
+  'translations/*.lua',
 }
 
 dependencies {
