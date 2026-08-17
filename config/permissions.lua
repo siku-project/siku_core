@@ -1,4 +1,12 @@
 PermissionSeedConfig = {
+  --- Primary role granted to a character the first time it enters the
+  --- ecosystem, when it carries no primary role yet.
+  ---
+  --- Must match one of the primary roles declared below.
+  ---
+  --- Default: 'user'
+  defaultRole = 'user',
+
   --- Default roles and permissions seeded into the database on first boot.
   --- After seeding, the database is the source of truth — changes made via
   --- the API (createRole, addPermissionToRole, etc.) persist in the DB.
