@@ -259,7 +259,7 @@ local function parseArguments(def, src, rawArgs)
         return nil, choiceError
       end
 
-      if type(argument.validate) == 'function' then
+      if _SikuInternal.IsCallable(argument.validate) then
         local validOk <const>, valid, validError = pcall(argument.validate, value, src)
 
         if not validOk or not valid then
@@ -425,24 +425,11 @@ local function normalizeArguments(primary, arguments)
       min = type(argument.min) == 'number' and argument.min or nil,
       max = type(argument.max) == 'number' and argument.max or nil,
       choices = type(argument.choices) == 'table' and argument.choices or nil,
-      validate = type(argument.validate) == 'function' and argument.validate or nil,
+      validate = _SikuInternal.IsCallable(argument.validate) and argument.validate or nil,
     }
   end
 
   return normalized
-end
-
----Checks that a value can be called, accepting the callable function
----references produced when a function crosses a resource export boundary.
----@param value any The value to check.
----@return boolean callable Whether the value is callable.
-local function isCallable(value)
-  if type(value) == 'function' then
-    return true
-  end
-
-  local meta <const> = getmetatable(value)
-  return meta ~= nil and meta.__call ~= nil
 end
 
 ---Registers a server command with typed arguments, permission, cooldown and chat suggestion.
@@ -468,7 +455,7 @@ function Siku.RegisterCommand(name, callback, options)
     end
   end
 
-  if not isCallable(callback) then
+  if not _SikuInternal.IsCallable(callback) then
     Siku.print.error(('RegisterCommand %q: callback must be a function'):format(names[1]))
     return false
   end
@@ -579,7 +566,7 @@ function Siku.RegisterCommandType(typeName, parser)
     return false
   end
 
-  if not isCallable(parser) then
+  if not _SikuInternal.IsCallable(parser) then
     Siku.print.error(('RegisterCommandType %q: parser must be a function'):format(typeName))
     return false
   end
