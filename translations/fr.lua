@@ -7,4 +7,11 @@ return {
   lifecycle_no_cached_user = 'Aucun utilisateur en cache pour la session %d.',
   lifecycle_character_cache_failed = "Échec de l'attachement du personnage %d à la session %d.",
   persistence_shutdown_saved = "%d joueur(s) sauvegardé(s) avant l'arrêt.",
+  permissions_command_title = 'Permissions',
+  permissions_no_character = 'Aucun personnage actif pour la session %d.',
+  permissions_unknown_role = "Le rôle '%s' n'existe pas.",
+  permissions_already_own_role = "Tu as déjà le rôle '%s'.",
+  permissions_already_has_role = "Cette personne a déjà le rôle '%s'.",
+  permissions_role_applied = "Rôle '%s' appliqué au personnage %d.",
+  permissions_role_removed = "Rôle '%s' retiré du personnage %d.",
 }

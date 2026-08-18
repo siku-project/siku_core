@@ -58,7 +58,9 @@ PermissionSeedConfig = {
       label = 'Administrator',
       isPrimary = true,
       inheritsFrom = 'dev',
-      permissions = {},
+      permissions = {
+        'permissions.setrole',
+      },
     },
     {
       name = 'owner',
