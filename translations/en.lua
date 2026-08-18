@@ -7,4 +7,11 @@ return {
   lifecycle_no_cached_user = 'No cached user for session %d.',
   lifecycle_character_cache_failed = 'Failed to attach character %d to session %d.',
   persistence_shutdown_saved = '%d player(s) saved before shutdown.',
+  permissions_command_title = 'Permissions',
+  permissions_no_character = 'No active character for session %d.',
+  permissions_unknown_role = "Role '%s' does not exist.",
+  permissions_already_own_role = "You already have the '%s' role.",
+  permissions_already_has_role = "This person already has the '%s' role.",
+  permissions_role_applied = "Role '%s' applied to character %d.",
+  permissions_role_removed = "Role '%s' removed from character %d.",
 }
