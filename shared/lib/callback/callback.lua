@@ -17,6 +17,7 @@ local function packedCount(packed)
   return packed.n or #packed
 end
 
+
 --- Create the request and response machinery shared by both callback directions.
 ---@param sendRequest function Sends a request to the other side, as (target, requestId, name, ...).
 ---@param sendResponse function Answers a request from the other side, as (target, requestId, ok, results).
@@ -61,7 +62,7 @@ local function createChannel(sendRequest, sendResponse, forwardTarget)
       return false
     end
 
-    if type(handler) ~= 'function' then
+    if not _SikuInternal.IsCallable(handler) then
       Siku.print.error(("Callback '%s' needs a function handler"):format(name))
       return false
     end
