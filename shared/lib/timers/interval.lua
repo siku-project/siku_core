@@ -19,7 +19,7 @@ function Siku.SetInterval(ms, cb, ...)
     Siku.print.throw(('SetInterval expects a number as first argument, got %s'):format(type(ms)))
   end
 
-  if type(cb) ~= 'function' then
+  if not _SikuInternal.IsCallable(cb) then
     Siku.print.throw(('SetInterval expects a function as second argument, got %s'):format(type(cb)))
   end
 
