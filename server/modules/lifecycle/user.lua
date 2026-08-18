@@ -30,17 +30,22 @@ local function handleCreateUserInstance(sessionId, userData)
   Siku.print.debug(Siku.cache.getPlayer(sessionId):toJSON())
 end
 
---- Clears the cached user of a player leaving the server.
+--- Persists then clears the cached user of a player leaving the server.
+--- Saving comes first: the cache is the only place their state still
+--- lives once the player is gone.
 ---@return nil
 local function handlePlayerDropped()
-  local user <const> = Siku.cache.getPlayer(source)
+  local sessionId <const> = source
+  local user <const> = Siku.cache.getPlayer(sessionId)
 
   if not user then
     return
   end
 
+  Siku.SavePlayer(sessionId)
+
   user:setOnline(false)
-  Siku.cache.removePlayer(source)
+  Siku.cache.removePlayer(sessionId)
 end
 
 AddEventHandler('siku:server:createUserInstance', handleCreateUserInstance)
