@@ -22,21 +22,21 @@ end)
 ---@param name string The callback name, following the 'siku:callback:<name>' convention.
 ---@param handler function The function answering the callback.
 ---@return boolean registered Whether the handler was stored.
-function Siku.registerCallback(name, handler)
+function Siku.RegisterCallback(name, handler)
   return channel.register(name, handler)
 end
 
 --- Remove a handler previously registered on this client.
 ---@param name string The callback name.
 ---@return boolean removed Whether a handler existed and was removed.
-function Siku.unregisterCallback(name)
+function Siku.UnregisterCallback(name)
   return channel.unregister(name)
 end
 
 --- Check whether this client answers a callback name.
 ---@param name string The callback name.
 ---@return boolean registered Whether a handler is registered.
-function Siku.isCallbackRegistered(name)
+function Siku.IsCallbackRegistered(name)
   return channel.isRegistered(name)
 end
 
