@@ -36,6 +36,8 @@ local function handleCreateCharacterInstance(sessionId, characterData)
     Siku.permissions.assignRole(character.id, PermissionSeedConfig.defaultRole)
   end
 
+  Siku.RefreshCommandSuggestions(sessionId)
+
   Siku.print.debug(('Character %d active for session %d'):format(character.id, sessionId))
 end
 
