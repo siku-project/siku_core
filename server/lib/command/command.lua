@@ -554,6 +554,24 @@ function Siku.GetCommandSuggestions(src)
   return result
 end
 
+---Pushes to a player every command suggestion they are allowed to use.
+---Permission-gated commands are filtered out while no character is active,
+---so call this once the character and its roles are loaded, and again
+---whenever those roles change.
+---@param src number The player's server id.
+---@return nil
+function Siku.RefreshCommandSuggestions(src)
+  if type(src) ~= 'number' or not isChatReady() then
+    return
+  end
+
+  for _, suggestion in ipairs(Siku.GetCommandSuggestions(src)) do
+    pcall(function()
+      exports[CHAT_RESOURCE]:AddSuggestion(src, suggestion)
+    end)
+  end
+end
+
 ---Registers a custom argument type parser, overriding any existing one.
 ---The parser is invoked with (raw, argumentDef, src, rawArgs, index) and must
 ---return the parsed value, or nil and an error message.
