@@ -25,9 +25,9 @@ server_scripts {
   'config/migration.lua',
   'config/permissions.lua',
   'config/connection.lua',
-  'server/modules/**/*.lua',
-  'server/lib/**/*.lua',
   'server/classes/**/*.lua',
+  'server/lib/**/*.lua',
+  'server/modules/**/*.lua',
 }
 
 client_scripts {
