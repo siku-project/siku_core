@@ -96,6 +96,8 @@ Siku.RegisterCommand('setrole', function(src, args)
     Siku.permissions.assignRole(character.id, roleName, nil, performedBy and performedBy.id or nil)
   end
 
+  Siku.RefreshCommandSuggestions(targetSession)
+
   local messageKey <const> = removed and 'permissions_role_removed' or 'permissions_role_applied'
   local message <const> = T(messageKey, roleName, character.id)
 
