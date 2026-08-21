@@ -1,4 +1,5 @@
 local intervals = {}
+local owners = {}
 
 --- Create a recurring interval that calls a function repeatedly at a fixed delay.
 --- Can also be used to update the interval of an existing timer by passing its ID as first argument.
@@ -23,6 +24,9 @@ function Siku.SetInterval(ms, cb, ...)
     Siku.print.throw(('SetInterval expects a function as second argument, got %s'):format(type(cb)))
   end
 
+  --- Read before the thread exists, because inside one nothing has invoked us
+  --- any more and the answer would be this resource every time.
+  local owner <const> = GetInvokingResource() or Siku.name
   local args <const> = { ... }
   local hasArgs <const> = #args > 0
   local id
@@ -45,7 +49,10 @@ function Siku.SetInterval(ms, cb, ...)
     until not intervals[id]
 
     intervals[id] = nil
+    owners[id] = nil
   end)
+
+  owners[id] = owner
 
   return id
 end
@@ -61,6 +68,25 @@ function Siku.ClearInterval(id)
 
   intervals[id] = -1
 end
+
+--- Stop every interval a resource asked for.
+---
+--- A callback belongs to the resource that wrote it, and a restarted resource
+--- leaves its own behind: the thread lives here and keeps calling into a script
+--- host that no longer exists, once per tick, for as long as the server runs —
+--- and a second restart leaves a second one. Every other library holding a
+--- caller's callback already lets go on its own; this one now does too.
+---@param resource string The resource that stopped.
+---@return nil
+local function clearOwnedBy(resource)
+  for id, owner in pairs(owners) do
+    if owner == resource then
+      Siku.ClearInterval(id)
+    end
+  end
+end
+
+AddEventHandler('onResourceStop', clearOwnedBy)
 
 --- Check if an interval is currently active.
 ---@param id number The interval ID.
