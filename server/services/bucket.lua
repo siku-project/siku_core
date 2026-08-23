@@ -233,21 +233,22 @@ function Siku.bucket.isPlayerInstanced(sessionId)
   return bucketId ~= nil and bucketId ~= DEFAULT_BUCKET
 end
 
---- Get the info of a specific bucket (read-only copy).
+--- Get the info of a specific bucket, as a detached copy that travels
+--- through the export intact.
 ---@param bucketId number The bucket ID.
 ---@return table|nil info The bucket info or nil if not found.
 function Siku.bucket.getInfo(bucketId)
   local bucket <const> = activeBuckets[bucketId]
   if not bucket then return nil end
 
-  return Siku.table.freeze({
+  return {
     id = bucket.id,
     owner = bucket.owner,
     lockdown = bucket.lockdown,
     population = bucket.population,
     playerCount = Siku.bucket.getPlayerCount(bucketId),
     createdAt = bucket.createdAt,
-  })
+  }
 end
 
 --- Get all active bucket IDs.

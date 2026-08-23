@@ -328,6 +328,20 @@ function cron.remove(id)
   return true
 end
 
+--- Run one due job in its own thread, so a job that throws or waits never
+--- touches the scheduler nor the other jobs.
+---@param id number The task ID, named in the error report.
+---@param data table The task entry and its public instance.
+local function runJob(id, data)
+  CreateThread(function()
+    local ok <const>, err <const> = pcall(data.entry.job, data.task)
+
+    if not ok then
+      Siku.print.error(('Cron task %d failed: %s'):format(id, tostring(err)))
+    end
+  end)
+end
+
 --- Run every due task for the current minute.
 ---@param now number The current os.time timestamp.
 local function runDueTasks(now)
@@ -344,7 +358,7 @@ local function runDueTasks(now)
         Siku.print.debug(('Cron task %d executing'):format(id))
       end
 
-      entry.job(data.task)
+      runJob(id, data)
     end
   end
 end

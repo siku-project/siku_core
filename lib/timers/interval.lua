@@ -2,31 +2,32 @@ local STOPPED <const> = -1
 
 local intervals = {}
 
---- Update the delay of an existing interval.
----@param id number The interval ID.
----@param ms any The new delay in milliseconds.
----@return number id The interval ID.
-local function updateInterval(id, ms)
-  if type(ms) ~= 'number' then
-    Siku.print.throw(('setInterval update expects a number as second argument, got %s'):format(type(ms)))
+--- Run one interval tick, keeping the loop alive when the callback throws.
+---@param id number The interval ID, named in the error report.
+---@param cb function The callback.
+---@param args table The extra arguments captured at creation.
+---@param hasArgs boolean Whether extra arguments were given.
+local function runTick(id, cb, args, hasArgs)
+  local ok, err
+
+  if hasArgs then
+    ok, err = pcall(cb, table.unpack(args))
+  else
+    ok, err = pcall(cb)
   end
 
-  intervals[id] = ms
-
-  return id
+  if not ok then
+    Siku.print.error(('Interval %d callback failed: %s'):format(id, tostring(err)))
+  end
 end
 
 --- Create a recurring interval that calls a function repeatedly at a fixed delay.
---- Can also be used to update the interval of an existing timer by passing its ID as first argument.
----@param ms number|function The delay in milliseconds, or an existing interval ID to update.
----@param cb function|number The callback function, or the new delay when updating.
+--- A callback that throws is reported and the interval keeps ticking.
+---@param ms number The delay in milliseconds.
+---@param cb function The callback function.
 ---@param ... any Additional arguments passed to the callback on each tick.
----@return number id The interval ID used to clear or update it later.
+---@return number id The interval ID used to clear or retime it later.
 local function setInterval(ms, cb, ...)
-  if type(ms) == 'number' and intervals[ms] then
-    return updateInterval(ms, cb)
-  end
-
   if type(ms) ~= 'number' then
     Siku.print.throw(('setInterval expects a number as first argument, got %s'):format(type(ms)))
   end
@@ -53,11 +54,7 @@ local function setInterval(ms, cb, ...)
       Wait(current)
 
       if intervals[id] and intervals[id] >= 0 then
-        if hasArgs then
-          cb(table.unpack(args))
-        else
-          cb()
-        end
+        runTick(id, cb, args, hasArgs)
       end
     until not intervals[id]
 
@@ -65,6 +62,24 @@ local function setInterval(ms, cb, ...)
   end)
 
   return id
+end
+
+--- Change the delay of a running interval, applied from its next tick.
+---@param id number The interval ID returned by setInterval.
+---@param ms number The new delay in milliseconds.
+---@return boolean applied Whether the interval existed and was retimed.
+local function updateInterval(id, ms)
+  if type(ms) ~= 'number' or ms < 0 then
+    Siku.print.throw(('updateInterval expects a positive number as second argument, got %s'):format(tostring(ms)))
+  end
+
+  if not intervals[id] then
+    return false
+  end
+
+  intervals[id] = ms
+
+  return true
 end
 
 --- Stop a recurring interval.
@@ -90,6 +105,7 @@ end
 
 return {
   setInterval = setInterval,
+  updateInterval = updateInterval,
   clearInterval = clearInterval,
   isIntervalActive = isIntervalActive,
 }
