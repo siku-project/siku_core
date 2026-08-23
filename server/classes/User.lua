@@ -11,7 +11,7 @@
 ---@field lastPlayedCharacter? number The id of the last played character.
 ---@field totalPlaytime number Total playtime across every character, in seconds.
 ---@field createdAt? string Timestamp of when the user was created.
-local User = Siku.Class('User')
+local User = Siku.class('User')
 
 --- Builds a user from its database row.
 ---@param sessionId number The player's server id.
@@ -21,7 +21,7 @@ function User:constructor(sessionId, data)
   self.sessionId = sessionId
   self.license = data.license
   self.discordId = data.discord_id
-  self.identifiers = Siku.GetIdentifiers(sessionId)
+  self.identifiers = Siku.player.getIdentifiers(sessionId)
   self.characters = {}
   self.currentCharacter = nil
   self.isOnline = true

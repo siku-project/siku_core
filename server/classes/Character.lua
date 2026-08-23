@@ -12,7 +12,7 @@ local DEFAULT_PED <const> = 'mp_m_freemode_01'
 ---@field heading number The last known heading.
 ---@field lastPlayed? string Timestamp of the last play session.
 ---@field createdAt? string Timestamp of character creation.
-local Character = Siku.Class('Character')
+local Character = Siku.class('Character')
 
 --- Builds a character from its database row.
 ---@param sessionId number The player's server id.
