@@ -14,4 +14,7 @@ return {
   permissions_already_has_role = "This person already has the '%s' role.",
   permissions_role_applied = "Role '%s' applied to character %d.",
   permissions_role_removed = "Role '%s' removed from character %d.",
+  permissions_no_performer = 'No active character to run this command with.',
+  permissions_target_outranks = 'You cannot change the roles of this person.',
+  permissions_role_too_high = "You cannot hand out the '%s' role.",
 }

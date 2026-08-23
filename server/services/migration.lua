@@ -353,9 +353,14 @@ function Siku.migration.run(config)
     return false, 0
   end
 
-  local ok <const>, applied <const> = applySchema(resource, config)
+  local protected <const>, ok <const>, applied <const> = pcall(applySchema, resource, config)
 
   busy = false
+
+  if not protected then
+    Siku.print.error(("[%s] Migration failed: %s"):format(resource, tostring(ok)))
+    return false, 0
+  end
 
   if ok then
     completed[resource] = true
