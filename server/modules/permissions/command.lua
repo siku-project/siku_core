@@ -29,7 +29,7 @@ local function holdsRole(charId, roleName)
   return false
 end
 
-Siku.RegisterCommand('setrole', function(src, args)
+Siku.command.register('setrole', function(src, args)
   local targetSession <const> = args.target
   local roleName <const> = args.role
 
@@ -39,7 +39,7 @@ Siku.RegisterCommand('setrole', function(src, args)
     Siku.print.warn(T('permissions_no_character', targetSession))
 
     if src ~= 0 then
-      Siku.Notification(src, {
+      Siku.notification.show(src, {
         type = 'error',
         title = T('permissions_command_title'),
         description = T('permissions_no_character', targetSession),
@@ -55,7 +55,7 @@ Siku.RegisterCommand('setrole', function(src, args)
     Siku.print.warn(T('permissions_unknown_role', roleName))
 
     if src ~= 0 then
-      Siku.Notification(src, {
+      Siku.notification.show(src, {
         type = 'error',
         title = T('permissions_command_title'),
         description = T('permissions_unknown_role', roleName),
@@ -70,14 +70,14 @@ Siku.RegisterCommand('setrole', function(src, args)
   local removed = false
 
   if isPrimary and holdsRole(character.id, roleName) then
-    Siku.Notification(targetSession, {
+    Siku.notification.show(targetSession, {
       type = 'info',
       title = T('permissions_command_title'),
       description = T('permissions_already_own_role', roleName),
     })
 
     if src ~= 0 and src ~= targetSession then
-      Siku.Notification(src, {
+      Siku.notification.show(src, {
         type = 'info',
         title = T('permissions_command_title'),
         description = T('permissions_already_has_role', roleName),
@@ -96,7 +96,7 @@ Siku.RegisterCommand('setrole', function(src, args)
     Siku.permissions.assignRole(character.id, roleName, nil, performedBy and performedBy.id or nil)
   end
 
-  Siku.RefreshCommandSuggestions(targetSession)
+  Siku.command.refreshSuggestions(targetSession)
 
   local messageKey <const> = removed and 'permissions_role_removed' or 'permissions_role_applied'
   local message <const> = T(messageKey, roleName, character.id)
@@ -104,7 +104,7 @@ Siku.RegisterCommand('setrole', function(src, args)
   Siku.print.info(message)
 
   if src ~= 0 then
-    Siku.Notification(src, {
+    Siku.notification.show(src, {
       type = 'success',
       title = T('permissions_command_title'),
       description = message,

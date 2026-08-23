@@ -1,3 +1,5 @@
+Siku.permissions = {}
+
 local rolesMap = {}
 local rolesByName = {}
 
