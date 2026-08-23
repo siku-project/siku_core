@@ -14,4 +14,7 @@ return {
   permissions_already_has_role = "Cette personne a déjà le rôle '%s'.",
   permissions_role_applied = "Rôle '%s' appliqué au personnage %d.",
   permissions_role_removed = "Rôle '%s' retiré du personnage %d.",
+  permissions_no_performer = 'Aucun personnage actif pour exécuter cette commande.',
+  permissions_target_outranks = 'Tu ne peux pas modifier les rôles de cette personne.',
+  permissions_role_too_high = "Tu ne peux pas attribuer le rôle '%s'.",
 }

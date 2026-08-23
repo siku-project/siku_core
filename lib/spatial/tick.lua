@@ -15,8 +15,12 @@ local function registerTick(key, fn)
 
   CreateThread(function()
     while next(subscribers) do
-      for _, callback in pairs(subscribers) do
-        callback()
+      for name, callback in pairs(subscribers) do
+        local ok <const>, err <const> = pcall(callback)
+
+        if not ok then
+          Siku.print.error(("Spatial tick '%s' failed: %s"):format(name, tostring(err)))
+        end
       end
 
       Wait(0)
