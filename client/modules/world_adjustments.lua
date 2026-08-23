@@ -152,7 +152,7 @@ end
 local function startDiscordPresence()
   if not WorldConfig.discord.enabled or WorldConfig.discord.appId == '' then return end
 
-  Siku.SetInterval(WorldConfig.discord.refreshInterval, function()
+  Siku.timers.setInterval(WorldConfig.discord.refreshInterval, function()
     SetDiscordAppId(WorldConfig.discord.appId)
     SetRichPresence(replacePlaceholders(WorldConfig.discord.presence))
     SetDiscordRichPresenceAsset(WorldConfig.discord.assetName)

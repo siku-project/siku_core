@@ -5,7 +5,7 @@ MigrationConfig = {
   --- • false: nothing is inspected and no query is sent
   ---
   --- Every resource that wants auto-migration ships its own copy of
-  --- this file and passes it to Siku.RunMigration.
+  --- this file and passes it to Siku.migration.run.
   enabled = true,
 
   --- Whether a schema whose version was already applied is still

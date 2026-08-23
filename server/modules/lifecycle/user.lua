@@ -42,7 +42,7 @@ local function handlePlayerDropped()
     return
   end
 
-  Siku.SavePlayer(sessionId)
+  Siku.persistence.savePlayer(sessionId)
 
   user:setOnline(false)
   Siku.cache.removePlayer(sessionId)
