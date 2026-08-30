@@ -2,7 +2,7 @@
 
 The core of the SIKU ecosystem — a modular, high-performance foundation for immersive FiveM roleplay experiences. Built with clean architecture, modern Lua 5.4 standards, scalability, and long-term maintainability.
 
-![Version](https://img.shields.io/badge/version-0.3.0-4785bd)
+![Version](https://img.shields.io/badge/version-1.0.0-4785bd)
 ![FiveM](https://img.shields.io/badge/fx__version-cerulean-4785bd)
 ![Lua](https://img.shields.io/badge/Lua-5.4-4785bd)
 
