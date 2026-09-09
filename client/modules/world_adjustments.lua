@@ -90,12 +90,8 @@ local function startSeatShuffleHandler()
     local vehicle <const> = GetVehiclePedIsIn(ped, false)
     if vehicle == 0 then return end
 
-    for seat = -1, GetVehicleMaxNumberOfPassengers(vehicle) - 1 do
-      if GetPedInVehicleSeat(vehicle, seat) == ped and seat > -1 then
-        SetPedIntoVehicle(ped, vehicle, seat)
-        SetPedConfigFlag(ped, 184, true)
-        break
-      end
+    if GetPedInVehicleSeat(vehicle, -1) ~= ped then
+      SetPedConfigFlag(ped, 184, true)
     end
   end)
 end
