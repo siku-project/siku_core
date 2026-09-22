@@ -2,7 +2,7 @@
 
 The core of the SIKU ecosystem — a modular, high-performance foundation for immersive FiveM roleplay experiences. Built with clean architecture, modern Lua 5.4 standards, scalability, and long-term maintainability.
 
-![Version](https://img.shields.io/badge/version-1.0.0-4785bd)
+![Version](https://img.shields.io/badge/version-1.1.0-4785bd)
 ![FiveM](https://img.shields.io/badge/fx__version-cerulean-4785bd)
 ![Lua](https://img.shields.io/badge/Lua-5.4-4785bd)
 
@@ -98,7 +98,7 @@ Stateful singletons living in the core, reached through the same namespace:
 
 | Service | What it owns |
 |---|---|
-| `Siku.cache` | Connected users and their active character, indexed by session and license. |
+| `Siku.cache` | Connected users and their active character, indexed by session, license and character id (`getSessionByCharacter`, `getCharacter`, `getCurrentCharacterId`). |
 | `Siku.permissions` | The whole RBAC: checks, wildcard matching, role management, audit log. |
 | `Siku.bucket` | Routing buckets: creation, lockdown modes, per-player instances, cleanup. |
 | `Siku.command` | Typed command registration, permission gating, cooldowns, chat suggestions. |
@@ -116,7 +116,30 @@ The core does not decide when a character enters play — a character resource (
 | `siku:server:createUserInstance` | `sessionId, userData` | Builds and caches the `User`. |
 | `siku:server:createCharacterInstance` | `sessionId, characterData` | Builds the `Character`, makes it active, grants the default role on first entrance. |
 
-Other resources listen to the same events to load what belongs to the character — that is how the inventory and the status system come alive.
+In return the core fires:
+
+| Event | Payload | When |
+|---|---|---|
+| `siku:server:releaseCharacterInstance` | `sessionId, characterId` | The character leaves play: on a switch, before the next one is activated, and on disconnect, after the core saved it and before the cache forgets it. |
+
+Other resources listen to these events to load and write back what belongs to the character — that is how the inventory, the status system and the HUD preferences come alive and go to sleep, without keeping their own copy of who plays what.
+
+## The character
+
+`Siku.cache.getCurrentCharacter(sessionId)` answers the `Character` in play, carrying the whole row: `id`, `userId`, `sessionId`, `firstName`, `lastName`, `dob` (`YYYY-MM-DD`), `gender`, `height`, `nationality`, `birthplace`, `pedModel`, `appearance` (decoded, or nil), `isDead`, `x`, `y`, `z`, `heading`, `lastPlayed`, `createdAt`.
+
+| Method | Purpose |
+|---|---|
+| `getFullName()`, `getAge()` | Read from the identity. |
+| `getPublic()` | The view that leaves the server: identity and death state, nothing to act on. |
+| `setIdentity({ firstName?, lastName?, dob?, gender?, height?, nationality?, birthplace? })` | Validates and writes at once, republishes, fires `siku:character:identityChanged`. |
+| `setPedModel(model)`, `setAppearance(look)` | Written at once. |
+| `setDead(dead)` | Written at once, republished, fires `siku:character:deathChanged(sessionId, characterId, dead)`: the seam a death resource, the status decay and the voice restriction hang on. |
+| `getPosition()`, `setPosition()`, `getPlaytime()`, `hasPermission()`, `getRoles()`, `assignRole()`, `revokeRole()` | As before. |
+
+Position, playtime and death state are also captured by `Siku.persistence` on its passes; identity, model and look are written by their setters, so a save pass never has to catch up on a name.
+
+The public view is replicated on the player's state bag `siku:state:character` the moment the character enters play, so every client reads who anyone is without asking: `Siku.player.getCharacter()` for the local player, `Siku.player.getCharacter(playerId)` or `Siku.player.getCharacterByServerId(serverId)` for another one. The `User` carries `name` and `ip` from the identifiers on top of the row.
 
 ## Database
 

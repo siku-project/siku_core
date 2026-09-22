@@ -2,10 +2,23 @@ Siku.cache = {}
 
 local players = {}
 local licenseIndex = {}
+local characterIndex = {}
 local playerCount = 0
 
+--- Drops the character index entry of a user's active character.
+---@param user table A Siku.User instance.
+---@return nil
+local function unindexCurrentCharacter(user)
+  local character <const> = user.currentCharacter
+
+  if character and characterIndex[character.id] == user.sessionId then
+    characterIndex[character.id] = nil
+  end
+end
+
 --- Caches a connected player's user, indexing it by session id and by license.
---- The session id and license are read from the user instance itself.
+--- The session id and license are read from the user instance itself; the
+--- active character is indexed later, by setCurrentCharacter.
 ---@param user table A Siku.User instance.
 ---@return boolean success Whether the user was cached.
 function Siku.cache.addPlayer(user)
@@ -42,6 +55,8 @@ function Siku.cache.removePlayer(sessionId)
   if user.license then
     licenseIndex[user.license] = nil
   end
+
+  unindexCurrentCharacter(user)
 
   players[sessionId] = nil
   playerCount = playerCount - 1
@@ -80,6 +95,87 @@ function Siku.cache.getCurrentCharacter(sessionId)
   end
 
   return user.currentCharacter
+end
+
+--- Gets the id of the active character of a cached player, without copying
+--- the character across the export boundary.
+---@param sessionId number The player's server id.
+---@return number? characterId The current character id, or nil.
+function Siku.cache.getCurrentCharacterId(sessionId)
+  local user <const> = players[sessionId]
+
+  if not user or not user.currentCharacter then
+    return nil
+  end
+
+  return user.currentCharacter.id
+end
+
+--- Makes a character the active one of a cached player and indexes it, so
+--- the session playing a character can be answered without a scan.
+---@param sessionId number The player's server id.
+---@param characterId number The character id to activate.
+---@return boolean success Whether the character was found and activated.
+function Siku.cache.setCurrentCharacter(sessionId, characterId)
+  local user <const> = players[sessionId]
+
+  if not user then
+    return false
+  end
+
+  unindexCurrentCharacter(user)
+
+  if not user:setCurrentCharacter(characterId) then
+    return false
+  end
+
+  characterIndex[characterId] = sessionId
+
+  return true
+end
+
+--- Takes the active character of a cached player out of play, announcing
+--- it through siku:server:releaseCharacterInstance before anything is
+--- forgotten: the resources holding state for that character write it back
+--- while the core can still name it. Called on character switch and before
+--- a dropped player leaves the cache.
+---@param sessionId number The player's server id.
+---@return boolean released Whether a character was in play.
+function Siku.cache.releaseCurrentCharacter(sessionId)
+  local user <const> = players[sessionId]
+
+  if not user or not user.currentCharacter then
+    return false
+  end
+
+  local characterId <const> = user.currentCharacter.id
+
+  TriggerEvent('siku:server:releaseCharacterInstance', sessionId, characterId)
+
+  unindexCurrentCharacter(user)
+  user:clearCurrentCharacter()
+
+  return true
+end
+
+--- Gets the session currently playing a character.
+---@param characterId number The character id.
+---@return number? sessionId The player's server id, or nil when nobody plays it.
+function Siku.cache.getSessionByCharacter(characterId)
+  return characterIndex[characterId]
+end
+
+--- Gets the active character of whoever plays it.
+---@param characterId number The character id.
+---@return table? character The current Siku.Character instance, or nil.
+function Siku.cache.getCharacter(characterId)
+  local sessionId <const> = characterIndex[characterId]
+
+  if not sessionId then
+    return nil
+  end
+
+  return Siku.cache.getCurrentCharacter(sessionId)
 end
 
 --- Checks whether a player is cached.
@@ -165,6 +261,10 @@ function Siku.cache.removeCharacter(sessionId, characterId)
     return false
   end
 
+  if characterIndex[characterId] == sessionId then
+    characterIndex[characterId] = nil
+  end
+
   return user:removeCharacter(characterId)
 end
 
@@ -173,5 +273,6 @@ end
 function Siku.cache.clear()
   players = {}
   licenseIndex = {}
+  characterIndex = {}
   playerCount = 0
 end
