@@ -30,12 +30,14 @@ local function handleCreateCharacterInstance(sessionId, characterData)
     return
   end
 
-  user:setCurrentCharacter(character.id)
+  Siku.cache.releaseCurrentCharacter(sessionId)
+  Siku.cache.setCurrentCharacter(sessionId, character.id)
 
   if not Siku.permissions.getPrimaryRole(character.id) then
     Siku.permissions.assignRole(character.id, PermissionSeedConfig.defaultRole)
   end
 
+  character:publish()
   Siku.command.refreshSuggestions(sessionId)
 
   Siku.print.debug(('Character %d active for session %d'):format(character.id, sessionId))
