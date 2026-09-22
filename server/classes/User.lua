@@ -15,13 +15,15 @@ local User = Siku.class('User')
 
 --- Builds a user from its database row.
 ---@param sessionId number The player's server id.
----@param data table The user row { id, license, discord_id, last_played_character, total_playtime, created_at }.
+---@param data table The user row { id, license, discord_id, ip, last_played_character, total_playtime, created_at }.
 function User:constructor(sessionId, data)
   self.id = data.id
   self.sessionId = sessionId
   self.license = data.license
   self.discordId = data.discord_id
   self.identifiers = Siku.player.getIdentifiers(sessionId)
+  self.name = self.identifiers.name
+  self.ip = self.identifiers.ip or data.ip
   self.characters = {}
   self.currentCharacter = nil
   self.isOnline = true
@@ -52,16 +54,13 @@ function User:hasCharacter(charId)
   return self.characters[charId] ~= nil
 end
 
---- Counts the user's characters.
+--- Counts the user's characters, every one in the database and not only
+--- those played since the connection.
 ---@return number count The number of characters.
 function User:getCharacterCount()
-  local count = 0
+  local count <const> = MySQL.scalar.await('SELECT COUNT(*) FROM characters WHERE user_id = ?', { self.id })
 
-  for _ in pairs(self.characters) do
-    count = count + 1
-  end
-
-  return count
+  return type(count) == 'number' and count or 0
 end
 
 --- Adds a character to the user.
@@ -118,6 +117,12 @@ end
 ---@return nil
 function User:clearCurrentCharacter()
   self.currentCharacter = nil
+end
+
+--- The active character.
+---@return table? character The character in play, or nil between two.
+function User:getCurrentCharacter()
+  return self.currentCharacter
 end
 
 --- Triggers a client event on this user's client.
@@ -180,6 +185,8 @@ function User:toJSON()
     sessionId = self.sessionId,
     license = self.license,
     discordId = self.discordId,
+    name = self.name,
+    ip = self.ip,
     isOnline = self.isOnline,
     lastSeen = self.lastSeen,
     lastPlayedCharacter = self.lastPlayedCharacter,

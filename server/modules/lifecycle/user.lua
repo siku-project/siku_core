@@ -32,7 +32,9 @@ end
 
 --- Persists then clears the cached user of a player leaving the server.
 --- Saving comes first: the cache is the only place their state still
---- lives once the player is gone.
+--- lives once the player is gone. The character is released before the
+--- cache forgets it, because this handler runs before every consumer's own
+--- playerDropped and they could no longer name the character afterwards.
 ---@return nil
 local function handlePlayerDropped()
   local sessionId <const> = source
@@ -43,6 +45,7 @@ local function handlePlayerDropped()
   end
 
   Siku.persistence.savePlayer(sessionId)
+  Siku.cache.releaseCurrentCharacter(sessionId)
 
   user:setOnline(false)
   Siku.cache.removePlayer(sessionId)
