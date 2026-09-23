@@ -2,7 +2,7 @@
 
 The core of the SIKU ecosystem — a modular, high-performance foundation for immersive FiveM roleplay experiences. Built with clean architecture, modern Lua 5.4 standards, scalability, and long-term maintainability.
 
-![Version](https://img.shields.io/badge/version-1.1.0-4785bd)
+![Version](https://img.shields.io/badge/version-1.2.0-4785bd)
 ![FiveM](https://img.shields.io/badge/fx__version-cerulean-4785bd)
 ![Lua](https://img.shields.io/badge/Lua-5.4-4785bd)
 
@@ -138,6 +138,8 @@ Other resources listen to these events to load and write back what belongs to th
 | `getPosition()`, `setPosition()`, `getPlaytime()`, `hasPermission()`, `getRoles()`, `assignRole()`, `revokeRole()` | As before. |
 
 Position, playtime and death state are also captured by `Siku.persistence` on its passes; identity, model and look are written by their setters, so a save pass never has to catch up on a name.
+
+The death state keeps itself accurate: the core client watches the local ped and reports each change through `siku:server:deathStateChanged`, the server checks its own copy of the ped before calling `setDead`. Whether a character left dead comes back dead is the character resource's decision (`deathPersistence` in [`siku_multicharacter`](https://github.com/siku-project/siku_multicharacter)); the core only tells the truth about the flag.
 
 The public view is replicated on the player's state bag `siku:state:character` the moment the character enters play, so every client reads who anyone is without asking: `Siku.player.getCharacter()` for the local player, `Siku.player.getCharacter(playerId)` or `Siku.player.getCharacterByServerId(serverId)` for another one. The `User` carries `name` and `ip` from the identifiers on top of the row.
 
