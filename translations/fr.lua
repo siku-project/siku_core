@@ -6,6 +6,7 @@ return {
   lifecycle_cache_failed = "Échec de la mise en cache de l'utilisateur %d pour la session %d.",
   lifecycle_no_cached_user = 'Aucun utilisateur en cache pour la session %d.',
   lifecycle_character_cache_failed = "Échec de l'attachement du personnage %d à la session %d.",
+  death_report_rejected = "La session %d a signalé pour le personnage %d un état de mort que son ped ne montre pas.",
   persistence_shutdown_saved = "%d joueur(s) sauvegardé(s) avant l'arrêt.",
   permissions_command_title = 'Permissions',
   permissions_no_character = 'Aucun personnage actif pour la session %d.',
