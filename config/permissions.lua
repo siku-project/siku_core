@@ -60,6 +60,7 @@ PermissionSeedConfig = {
       inheritsFrom = 'dev',
       permissions = {
         'permissions.setrole',
+        'jobs.manage',
       },
     },
     {

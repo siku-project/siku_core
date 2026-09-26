@@ -36,7 +36,7 @@ MigrationConfig = {
     ---
     --- The pair (resource, version) is recorded in `siku_migrations`
     --- once applied, and a version already recorded is never replayed.
-    version = '1.2.0',
+    version = '1.3.0',
 
     --- The tables this resource owns.
     ---
@@ -206,6 +206,127 @@ MigrationConfig = {
           { name = 'idx_audit_action', columns = { 'action' } },
           { name = 'idx_audit_target', columns = { 'target_type', 'target_id' } },
           { name = 'idx_audit_created_at', columns = { 'created_at' } },
+        },
+      },
+      {
+        name = 'jobs',
+        columns = {
+          { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
+          { name = 'name', type = 'VARCHAR(50)', notNull = true, unique = true },
+          { name = 'label', type = 'VARCHAR(100)', notNull = true },
+          { name = 'domain', type = 'VARCHAR(10)', notNull = true, default = 'legal' },
+          { name = 'resource', type = 'VARCHAR(100)', default = 'NULL' },
+          { name = 'created_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
+        },
+        indexes = {
+          { name = 'idx_jobs_domain', columns = { 'domain' } },
+        },
+      },
+      {
+        name = 'job_grades',
+        columns = {
+          { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
+          { name = 'job_id', type = 'INT', unsigned = true, notNull = true },
+          { name = 'name', type = 'VARCHAR(50)', notNull = true },
+          { name = 'label', type = 'VARCHAR(100)', notNull = true },
+          { name = 'rank_order', type = 'INT', unsigned = true, notNull = true, default = 0 },
+        },
+        indexes = {
+          { name = 'idx_job_grades_job_name', columns = { 'job_id', 'name' }, unique = true },
+        },
+        foreignKeys = {
+          {
+            column = 'job_id',
+            references = { table = 'jobs', column = 'id' },
+            onDelete = 'CASCADE',
+            onUpdate = 'CASCADE',
+          },
+        },
+      },
+      {
+        name = 'job_permissions',
+        columns = {
+          { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
+          { name = 'job_id', type = 'INT', unsigned = true, notNull = true },
+          { name = 'name', type = 'VARCHAR(100)', notNull = true },
+          { name = 'requires_duty', type = 'BOOLEAN', notNull = true, default = 0 },
+        },
+        indexes = {
+          { name = 'idx_job_permissions_job_name', columns = { 'job_id', 'name' }, unique = true },
+        },
+        foreignKeys = {
+          {
+            column = 'job_id',
+            references = { table = 'jobs', column = 'id' },
+            onDelete = 'CASCADE',
+            onUpdate = 'CASCADE',
+          },
+        },
+      },
+      {
+        name = 'job_grade_permissions',
+        columns = {
+          { name = 'grade_id', type = 'INT', unsigned = true, notNull = true, primaryKey = true },
+          { name = 'pattern', type = 'VARCHAR(100)', notNull = true, primaryKey = true },
+        },
+        foreignKeys = {
+          {
+            column = 'grade_id',
+            references = { table = 'job_grades', column = 'id' },
+            onDelete = 'CASCADE',
+            onUpdate = 'CASCADE',
+          },
+        },
+      },
+      {
+        name = 'job_memberships',
+        columns = {
+          { name = 'character_id', type = 'INT', unsigned = true, notNull = true, primaryKey = true },
+          { name = 'job_id', type = 'INT', unsigned = true, notNull = true, primaryKey = true },
+          { name = 'grade_id', type = 'INT', unsigned = true, notNull = true },
+          { name = 'hired_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
+        },
+        indexes = {
+          { name = 'idx_job_memberships_job', columns = { 'job_id' } },
+          { name = 'idx_job_memberships_grade', columns = { 'grade_id' } },
+        },
+        foreignKeys = {
+          {
+            column = 'character_id',
+            references = { table = 'characters', column = 'id' },
+            onDelete = 'CASCADE',
+            onUpdate = 'CASCADE',
+          },
+          {
+            column = 'job_id',
+            references = { table = 'jobs', column = 'id' },
+            onDelete = 'CASCADE',
+            onUpdate = 'CASCADE',
+          },
+          {
+            column = 'grade_id',
+            references = { table = 'job_grades', column = 'id' },
+            onDelete = 'RESTRICT',
+            onUpdate = 'CASCADE',
+          },
+        },
+      },
+      {
+        name = 'job_audit_log',
+        columns = {
+          { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
+          { name = 'action', type = 'VARCHAR(50)', notNull = true },
+          { name = 'job_id', type = 'INT', unsigned = true, default = 'NULL' },
+          { name = 'target_character_id', type = 'INT', unsigned = true, default = 'NULL' },
+          { name = 'performed_by', type = 'INT', unsigned = true, default = 'NULL' },
+          { name = 'details', type = 'TEXT', default = 'NULL' },
+          { name = 'created_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
+        },
+        indexes = {
+          { name = 'idx_job_audit_action', columns = { 'action' } },
+          { name = 'idx_job_audit_job', columns = { 'job_id' } },
+          { name = 'idx_job_audit_target', columns = { 'target_character_id' } },
+          { name = 'idx_job_audit_created_at', columns = { 'created_at' } },
         },
       },
     },

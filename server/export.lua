@@ -5,6 +5,7 @@ local SERVICES <const> = {
   command = Siku.command,
   migration = Siku.migration,
   persistence = Siku.persistence,
+  jobs = Siku.jobs,
 }
 
 exports('objectExport', function()
