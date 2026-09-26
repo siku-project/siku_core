@@ -2,7 +2,7 @@
 
 The core of the SIKU ecosystem — a modular, high-performance foundation for immersive FiveM roleplay experiences. Built with clean architecture, modern Lua 5.4 standards, scalability, and long-term maintainability.
 
-![Version](https://img.shields.io/badge/version-1.2.0-4785bd)
+![Version](https://img.shields.io/badge/version-1.3.0-4785bd)
 ![FiveM](https://img.shields.io/badge/fx__version-cerulean-4785bd)
 ![Lua](https://img.shields.io/badge/Lua-5.4-4785bd)
 
@@ -15,6 +15,7 @@ The core of the SIKU ecosystem — a modular, high-performance foundation for im
 - **Additive migrations** — resources declare their schema; the core creates missing tables, columns and foreign keys under a global lock, never altering or dropping what exists.
 - **Typed commands** — argument parsing with types, bounds, choices and durations, permission gating, cooldowns, and suggestions pushed to the chat.
 - **User & character lifecycle** — connected players cached with their active character, playtime tracked, positions persisted, cleaned up on disconnect.
+- **Job engine** — the single authority on jobs: resources declare their organisation (grades, permissions, legal or illegal), the core stores it, holds every membership per character, resolves permissions and duty, counts who is in, and tells the ecosystem what changed. Multi-job by design, no boss, no primary job.
 - **Routing buckets** — instance management with lockdown modes, per-player instances and automatic cleanup.
 - **World adjustments** — a single configurable client module for HUD components, ped/vehicle density, dispatch, scenarios, health regen, PvP and Discord Rich Presence.
 - **Resilient by design** — cron jobs, spatial ticks, intervals and migrations are isolated so one failing callback never kills the subsystem.
@@ -104,6 +105,7 @@ Stateful singletons living in the core, reached through the same namespace:
 | `Siku.command` | Typed command registration, permission gating, cooldowns, chat suggestions. |
 | `Siku.migration` | Additive schema migrations, with cross-resource dependencies and a global lock. |
 | `Siku.persistence` | Position and playtime capture, character and user writes. |
+| `Siku.jobs` | The job engine: registry, memberships, grades, permissions, duty, counters, audit. See [Jobs](#jobs). |
 
 The `Siku.User` and `Siku.Character` classes stay inside the core: consumers receive cached instances as data and act on them through the services.
 
@@ -143,9 +145,74 @@ The death state keeps itself accurate: the core client watches the local ped and
 
 The public view is replicated on the player's state bag `siku:state:character` the moment the character enters play, so every client reads who anyone is without asking: `Siku.player.getCharacter()` for the local player, `Siku.player.getCharacter(playerId)` or `Siku.player.getCharacterByServerId(serverId)` for another one. The `User` carries `name` and `ip` from the identifiers on top of the row.
 
+## Jobs
+
+The core owns everything structural about jobs; the resources own the gameplay. A character holds zero, one or several memberships, each with a grade; a grade is a set of permissions and a rank; a permission is a concrete capability that may need the character on duty. Legal jobs have a duty, illegal organisations do not. A character with no legal job is unemployed, whatever else it belongs to. Nothing is stored for the unemployment, no grade is a boss, no job is the main one.
+
+### Declaring a job
+
+A resource registers its organisation once at start. The first registration writes the definition; the next ones only add what the declaration gained, so an edit made in game (a renamed grade, a new one, a permission granted) survives every restart. The job is live until the resource stops, and dormant afterwards: members keep their grades, nobody keeps a duty, no permission resolves.
+
+```lua
+local police = Siku.jobs.get('police')
+
+police:register({
+  label = 'Los Santos Police Department',
+  permissions = {
+    'recruit',
+    'management.open',
+    { name = 'armory.access', duty = true },
+    { name = 'dispatch.receive', duty = true },
+    { name = 'garage.use', duty = true },
+  },
+  grades = {
+    { name = 'cadet', label = 'Cadet', rank = 1, permissions = { 'garage.use' } },
+    { name = 'officer', label = 'Officer', rank = 2, permissions = { 'garage.use', 'armory.access', 'dispatch.receive' } },
+    { name = 'sergeant', label = 'Sergeant', rank = 3, permissions = { 'garage.*', 'armory.*', 'dispatch.*', 'recruit' } },
+    { name = 'commander', label = 'Commander', rank = 4, permissions = { '*' } },
+  },
+})
+```
+
+A `domain = 'illegal'` turns the declaration into an organisation without duty. Grades are named, never numbered outside the engine: the rank only orders them and bounds what a member may do to another. Permissions are the job's own vocabulary: the core keeps no catalogue and gives no meaning to a name, it stores what the job declared, resolves it with the same wildcards and negation as the staff RBAC, scoped to the job, and answers `hasPermission`. A police can ask for `dispatch.receive`, a family for `stash.manage`; what a permission allows is decided where it is checked.
+
+### Acting on a job
+
+`Siku.jobs.get(name)` answers a handle whose reads are copies and whose writes go back to the core: `getDefinition`, `getGrades`, `getMembers`, `getOnlineMembers`, `count`, `hasMember`, `getMembership`, `hasPermission(characterId, permission)`, `isOnDuty`, `hire`, `fire`, `setGrade`, `setDuty`, and the definition edits a patron menu needs: `setLabel`, `createGrade`, `updateGrade`, `deleteGrade` (members move to the grade just below), `declarePermission`, `removePermission`, `grantPermission`, `revokePermission`. Every function also exists flat on `Siku.jobs` with the job name first.
+
+A membership mutation takes a context `{ performedBy, enforceHierarchy }`. When the actor is a member of the job, the engine asks for a rank above the one touched: nobody hires, promotes or dismisses at or above their own grade. Staff and code acting from outside the job, or a context with `enforceHierarchy = false`, go through. Whether the actor may act at all is the job's rule, checked with its own permissions before calling. Every hire, dismissal, grade change and definition edit lands in `job_audit_log` with the actor.
+
+### Following a job
+
+| Event | Payload |
+|---|---|
+| `siku:jobs:registered` | `jobName, definition` |
+| `siku:jobs:deactivated` | `jobName` |
+| `siku:jobs:definitionChanged` | `jobName, definition` |
+| `siku:jobs:memberAdded` | `characterId, jobName, gradeName, sessionId?` |
+| `siku:jobs:memberRemoved` | `characterId, jobName, sessionId?` |
+| `siku:jobs:gradeChanged` | `characterId, jobName, gradeName, previousGradeName, sessionId?` |
+| `siku:jobs:dutyChanged` | `sessionId, characterId, jobName, onDuty` |
+| `siku:jobs:unemploymentAllowance` | `sessionId, characterId, amount` — temporary, until the economy |
+
+The duty lives in memory and ends with the session. Taking a duty when the legal `maxOnDuty` is reached is refused, not switched: the job resource decides what to offer.
+
+### On the client
+
+Nothing goes through a state bag: a character receives its own memberships and nobody else's. `Siku.jobs.getMine()`, `get(job)`, `has(job)`, `isOnDuty(job)`, `getDuties()`, `isUnemployed()` read the local copy; `onChanged(handler)` follows it; `getCounts(job)`, `getDefinition(job)` and `getMembers(job)` ask the server, the last one only answered to a member of the job.
+
+### Commands
+
+| Command | Permission | Effect |
+|---|---|---|
+| `/setjob <player> <job> <grade>` | `jobs.manage` | Hires the character or moves its grade, by grade name. |
+| `/unsetjob <player> <job>` | `jobs.manage` | Removes the character from the job. |
+| `/jobs [player]` | own, `jobs.manage` for others | Lists the memberships. |
+| `/duty <job>` | member | Takes or leaves the duty of a legal job. |
+
 ## Database
 
-`config/migration.lua` declares the core schema, applied on startup: `users`, `characters`, `roles`, `permissions`, `role_permissions`, `character_roles` and `rbac_audit_log`, with indexes and cascading foreign keys.
+`config/migration.lua` declares the core schema, applied on startup: `users`, `characters`, `roles`, `permissions`, `role_permissions`, `character_roles`, `rbac_audit_log`, and for the job engine `jobs`, `job_grades`, `job_permissions`, `job_grade_permissions`, `job_memberships` and `job_audit_log`, with indexes and cascading foreign keys.
 
 ## Configuration
 
@@ -162,6 +229,7 @@ All options live in `config/` and are documented inline.
 | `config/migration.lua` | server | The core schema. |
 | `config/permissions.lua` | server | Role seeding and defaults. |
 | `config/connection.lua` | server | Hardcap enforcement. |
+| `config/jobs.lua` | server, consumers | Domain limits (`maxJobs`, `maxOnDuty`, `false` for none), the temporary unemployment allowance, auditing. |
 
 ## Conventions
 
