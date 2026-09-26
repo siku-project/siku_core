@@ -386,6 +386,25 @@ end
 --- Serializes the character to a plain table, the look left out since it
 --- is large and has its own field.
 ---@return table data The serialized character.
+--- The jobs the character belongs to, as the job engine sees them.
+---@return table memberships The public memberships, one per job, sorted by domain then label.
+function Character:getJobs()
+  return Siku.jobs.getMemberships(self.id)
+end
+
+--- Whether the character belongs to a job.
+---@param jobName string The job name.
+---@return boolean member Whether a membership exists.
+function Character:hasJob(jobName)
+  return Siku.jobs.hasJob(self.id, jobName)
+end
+
+--- Whether the character holds no legal job.
+---@return boolean unemployed Whether the character is unemployed.
+function Character:isUnemployed()
+  return Siku.jobs.isUnemployed(self.id)
+end
+
 function Character:toJSON()
   return {
     id = self.id,
