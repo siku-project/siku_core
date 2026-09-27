@@ -36,7 +36,7 @@ MigrationConfig = {
     ---
     --- The pair (resource, version) is recorded in `siku_migrations`
     --- once applied, and a version already recorded is never replayed.
-    version = '1.3.0',
+    version = '1.4.0',
 
     --- The tables this resource owns.
     ---
@@ -327,6 +327,80 @@ MigrationConfig = {
           { name = 'idx_job_audit_job', columns = { 'job_id' } },
           { name = 'idx_job_audit_target', columns = { 'target_character_id' } },
           { name = 'idx_job_audit_created_at', columns = { 'created_at' } },
+        },
+      },
+      {
+        name = 'accounts',
+        columns = {
+          { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
+          { name = 'owner_type', type = 'VARCHAR(16)', notNull = true },
+          { name = 'owner_id', type = 'INT', unsigned = true, notNull = true },
+          { name = 'balance', type = 'BIGINT', notNull = true, default = 0 },
+          { name = 'state', type = 'VARCHAR(10)', notNull = true, default = 'active' },
+          { name = 'allow_negative', type = 'BOOLEAN', notNull = true, default = 0 },
+          { name = 'resource', type = 'VARCHAR(100)', default = 'NULL' },
+          { name = 'metadata', type = 'TEXT', default = 'NULL' },
+          { name = 'created_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
+          { name = 'updated_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
+          { name = 'closed_at', type = 'TIMESTAMP', default = 'NULL' },
+        },
+        indexes = {
+          { name = 'idx_accounts_owner', columns = { 'owner_type', 'owner_id' } },
+          { name = 'idx_accounts_state', columns = { 'state' } },
+        },
+      },
+      {
+        name = 'account_access',
+        columns = {
+          { name = 'account_id', type = 'INT', unsigned = true, notNull = true, primaryKey = true },
+          { name = 'character_id', type = 'INT', unsigned = true, notNull = true, primaryKey = true },
+          { name = 'permission', type = 'VARCHAR(100)', notNull = true, primaryKey = true },
+          { name = 'granted_by', type = 'INT', unsigned = true, default = 'NULL' },
+          { name = 'created_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
+        },
+        indexes = {
+          { name = 'idx_account_access_character', columns = { 'character_id' } },
+        },
+        foreignKeys = {
+          {
+            column = 'account_id',
+            references = { table = 'accounts', column = 'id' },
+            onDelete = 'CASCADE',
+            onUpdate = 'CASCADE',
+          },
+          {
+            column = 'character_id',
+            references = { table = 'characters', column = 'id' },
+            onDelete = 'CASCADE',
+            onUpdate = 'CASCADE',
+          },
+        },
+      },
+      {
+        name = 'account_mutations',
+        columns = {
+          { name = 'id', type = 'BIGINT', unsigned = true, autoIncrement = true, primaryKey = true },
+          { name = 'batch', type = 'VARCHAR(36)', notNull = true },
+          { name = 'account_id', type = 'INT', unsigned = true, notNull = true },
+          { name = 'delta', type = 'BIGINT', notNull = true },
+          { name = 'balance_after', type = 'BIGINT', notNull = true },
+          { name = 'reason', type = 'VARCHAR(128)', default = 'NULL' },
+          { name = 'resource', type = 'VARCHAR(100)', default = 'NULL' },
+          { name = 'performed_by', type = 'INT', unsigned = true, default = 'NULL' },
+          { name = 'created_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
+        },
+        indexes = {
+          { name = 'idx_account_mutations_account', columns = { 'account_id', 'id' } },
+          { name = 'idx_account_mutations_batch', columns = { 'batch' } },
+          { name = 'idx_account_mutations_created_at', columns = { 'created_at' } },
+        },
+        foreignKeys = {
+          {
+            column = 'account_id',
+            references = { table = 'accounts', column = 'id' },
+            onDelete = 'CASCADE',
+            onUpdate = 'CASCADE',
+          },
         },
       },
     },
