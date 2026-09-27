@@ -17,22 +17,6 @@ JobsConfig = {
     },
   },
 
-  --- Unemployment: a character holding no legal job is unemployed, whatever
-  --- illegal organisation it belongs to. Nothing is stored for it.
-  unemployment = {
-    --- TEMPORARY allowance, until the economy exists. Every interval the
-    --- core fires `siku:jobs:unemploymentAllowance(sessionId, characterId,
-    --- amount)` for each unemployed character in play and, when
-    --- siku_inventory is started and `item` is set, hands that many of the
-    --- item over. Replace it with the bank when it comes.
-    allowance = {
-      enabled = true,
-      amount = 200,
-      interval = 15 * 60000,
-      item = 'cash',
-    },
-  },
-
   --- Whether hires, dismissals, grade changes and definition edits are
   --- written to `job_audit_log`.
   audit = true,
