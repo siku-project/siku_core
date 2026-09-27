@@ -17,6 +17,7 @@ CreateThread(function()
   Siku.migration.run(MigrationConfig)
   _SikuInternal.InitPermissions()
   _SikuInternal.InitJobs()
+  _SikuInternal.InitAccounts()
 
   Siku.print.success('Siku core initialization finished ! Framework Ready')
 end)

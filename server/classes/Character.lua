@@ -405,6 +405,13 @@ function Character:isUnemployed()
   return Siku.jobs.isUnemployed(self.id)
 end
 
+--- The accounts the character owns.
+---@param includeClosed? boolean Whether closed accounts are listed too.
+---@return table accounts The public accounts.
+function Character:getAccounts(includeClosed)
+  return Siku.accounts.getCharacterAccounts(self.id, includeClosed)
+end
+
 function Character:toJSON()
   return {
     id = self.id,

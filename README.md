@@ -2,7 +2,7 @@
 
 The core of the SIKU ecosystem — a modular, high-performance foundation for immersive FiveM roleplay experiences. Built with clean architecture, modern Lua 5.4 standards, scalability, and long-term maintainability.
 
-![Version](https://img.shields.io/badge/version-1.3.0-4785bd)
+![Version](https://img.shields.io/badge/version-1.4.0-4785bd)
 ![FiveM](https://img.shields.io/badge/fx__version-cerulean-4785bd)
 ![Lua](https://img.shields.io/badge/Lua-5.4-4785bd)
 
@@ -16,6 +16,7 @@ The core of the SIKU ecosystem — a modular, high-performance foundation for im
 - **Typed commands** — argument parsing with types, bounds, choices and durations, permission gating, cooldowns, and suggestions pushed to the chat.
 - **User & character lifecycle** — connected players cached with their active character, playtime tracked, positions persisted, cleaned up on disconnect.
 - **Job engine** — the single authority on jobs: resources declare their organisation (grades, permissions, legal or illegal), the core stores it, holds every membership per character, resolves permissions and duty, counts who is in, and tells the ecosystem what changed. Multi-job by design, no boss, no primary job.
+- **Accounts engine** — the foundation of every balance: accounts as first-class entities owned by a character or a job, zero or many per owner, a balance the core alone moves through atomic batches, a journal of every mutation, grants for characters who are not the owner, and states. The core knows an account exists, whom it belongs to and what it holds; the bank decides why the value moves.
 - **Routing buckets** — instance management with lockdown modes, per-player instances and automatic cleanup.
 - **World adjustments** — a single configurable client module for HUD components, ped/vehicle density, dispatch, scenarios, health regen, PvP and Discord Rich Presence.
 - **Resilient by design** — cron jobs, spatial ticks, intervals and migrations are isolated so one failing callback never kills the subsystem.
@@ -106,6 +107,7 @@ Stateful singletons living in the core, reached through the same namespace:
 | `Siku.migration` | Additive schema migrations, with cross-resource dependencies and a global lock. |
 | `Siku.persistence` | Position and playtime capture, character and user writes. |
 | `Siku.jobs` | The job engine: registry, memberships, grades, permissions, duty, counters, audit. See [Jobs](#jobs). |
+| `Siku.accounts` | The accounts engine: accounts, balances, atomic mutations, journal, grants, states. See [Accounts](#accounts). |
 
 The `Siku.User` and `Siku.Character` classes stay inside the core: consumers receive cached instances as data and act on them through the services.
 
@@ -193,7 +195,6 @@ A membership mutation takes a context `{ performedBy, enforceHierarchy }`. When 
 | `siku:jobs:memberRemoved` | `characterId, jobName, sessionId?` |
 | `siku:jobs:gradeChanged` | `characterId, jobName, gradeName, previousGradeName, sessionId?` |
 | `siku:jobs:dutyChanged` | `sessionId, characterId, jobName, onDuty` |
-| `siku:jobs:unemploymentAllowance` | `sessionId, characterId, amount` — temporary, until the economy |
 
 The duty lives in memory and ends with the session. Taking a duty when the legal `maxOnDuty` is reached is refused, not switched: the job resource decides what to offer.
 
@@ -210,9 +211,83 @@ Nothing goes through a state bag: a character receives its own memberships and n
 | `/jobs [player]` | own, `jobs.manage` for others | Lists the memberships. |
 | `/duty <job>` | member | Takes or leaves the duty of a legal job. |
 
+## Accounts
+
+The core owns the foundation of every balance and nothing of the banking. An account is an entity of its own: a stable id, an owner, a balance, a state, free metadata. A character or a job owns zero, one or many of them, nothing is created on its own, and the core never judges who may open one: that is the business of the resource asking, siku_banking first. Cash is not an account: it stays an inventory item, the inventory being the only truth about physical money.
+
+The core knows an account exists, whom it belongs to and what it holds. It does not know what a bank, an ATM, a card, a PIN, a transfer, a loan, an interest, a salary or a fine is: the resources on top give the value its meaning.
+
+### Opening and closing
+
+```lua
+local accountId = Siku.accounts.create('character', characterId)
+local societyId = Siku.accounts.create('job', 'mechanic', { metadata = { product = 'business' } })
+
+Siku.accounts.freeze(accountId, performedBy)
+Siku.accounts.unfreeze(accountId, performedBy)
+Siku.accounts.close(accountId, performedBy)
+```
+
+`create(ownerType, owner, options?)` takes `character` with a character id, or `job` with a job id or name, and `{ allowNegative?, metadata?, balance? }`; it answers the id or `nil` and a reason (`unknown_owner`, `invalid_amount`, ...). An account is `active`, `frozen` (it keeps its balance and refuses every mutation) or `closed` (its balance must be zero, and it never comes back). `delete` removes a closed account and its journal, for maintenance only. `setMetadata` replaces the free table a consumer keeps its own facts in, `setNegativeAllowed` decides per account whether the balance may go under zero, `AccountsConfig.allowNegative` deciding for the others.
+
+### Moving value
+
+```lua
+Siku.accounts.credit(accountId, 500, { reason = 'salary', performedBy = actorId })
+Siku.accounts.debit(accountId, 120, { reason = 'fine' })
+Siku.accounts.transfer(fromId, toId, 1000, { reason = 'transfer' })
+
+Siku.accounts.apply({
+  { account = fromId, delta = -1000 },
+  { account = feesId, delta = 10 },
+  { account = toId, delta = 990 },
+}, { reason = 'transfer with fees' })
+```
+
+Everything goes through `apply`: a batch of mutations, each an account and a whole delta, applied all or none. The core checks every account is active, every amount is whole and within `maxAmount`, every resulting balance stays allowed, holds a lock on the accounts touched, writes every balance and every journal line in one transaction, moves the cache and fires `siku:accounts:balanceChanged` per account. `credit`, `debit` and `transfer` are batches of one or two lines; `setBalance` writes the difference so the journal stays honest. Refusals come back as `false, reason`: `unknown_account`, `frozen`, `closed`, `invalid_amount`, `amount_limit`, `insufficient_balance`, `duplicate_account`, `batch_too_large`, `write_failed`.
+
+Every mutation is journaled in `account_mutations` when `AccountsConfig.journal` is on: the batch, the delta, the balance after, the resource that asked, the reason it gave, the character acting. `getMutations(accountId, limit?)` reads the last ones. This is a technical trace the core keeps for itself; a statement a player reads is the bank's to build.
+
+### Owners and access
+
+Owning and acting are two different things. An owning character may do everything on its account. A character who is not the owner acts through a grant, a permission name the consumer invents, stored by the core and matched with the same wildcards and negation as every permission of the framework: `grant(accountId, characterId, 'use')`, `revoke(accountId, characterId, 'use'?)`, `hasGrant`, `getGrants`. A job account asks the job engine: `canAct(accountId, characterId, permission)` answers true for the owning character, for a matching grant, or when `Siku.jobs.hasPermission` answers the same name on the owning job. The core never names a permission: `treasury.use`, `account.manage` or anything else is the consumer's vocabulary.
+
+`getCharacterAccounts(characterId)`, `getJobAccounts(job)`, `getByOwner(type, id)` and `getAccessible(characterId)` list what an owner holds and what a character can see. Every table leaving the engine is a copy.
+
+### Following the accounts
+
+| Event | Payload |
+|---|---|
+| `siku:accounts:created` | `accountId, account` |
+| `siku:accounts:balanceChanged` | `accountId, balance, delta, batch, reason?, performedBy?` |
+| `siku:accounts:stateChanged` | `accountId, state, previous, performedBy?` |
+| `siku:accounts:metadataChanged` | `accountId, metadata` |
+| `siku:accounts:accessChanged` | `accountId, characterId, permission, granted, performedBy?` |
+| `siku:accounts:deleted` | `accountId, account` |
+
+### On the client
+
+Nothing goes through a state bag: a character receives the accounts it owns or holds a grant on, and nobody else's. `Siku.accounts.getMine()`, `get(id)`, `getBalance(id)`, `getOwned()` read the local copy, `onChanged(handler)` follows it; `fetch(id)`, `getJobAccounts(job)` and `getMutations(id)` ask the server, answered to the owner, a grant holder or a member of the owning job.
+
+### Handle
+
+`Siku.accounts.get(id)` answers a handle on the server whose reads are copies and whose writes go back to the core: `read`, `getBalance`, `getState`, `isActive`, `credit`, `debit`, `transferTo`, `setBalance`, `getMutations`, `freeze`, `unfreeze`, `close`, `setMetadata`, `setNegativeAllowed`, `grant`, `revoke`, `getGrants`, `isOwner`, `canAct`. Every function also exists flat on `Siku.accounts` with the account id first, `getAccount(id)` being the flat read.
+
+### Commands
+
+| Command | Permission | Effect |
+|---|---|---|
+| `/accounts [player]` | own, `accounts.manage` for others | Lists the accounts a character sees. |
+| `/createaccount <player>` | `accounts.manage` | Opens an account owned by the character. |
+| `/setbalance <account> <amount>` | `accounts.manage` | Sets a balance. |
+| `/creditaccount <account> <amount>` | `accounts.manage` | Credits an account. |
+| `/debitaccount <account> <amount>` | `accounts.manage` | Debits an account. |
+| `/freezeaccount <account>` | `accounts.manage` | Freezes an account, or reopens a frozen one. |
+| `/closeaccount <account>` | `accounts.manage` | Closes an account whose balance is zero. |
+
 ## Database
 
-`config/migration.lua` declares the core schema, applied on startup: `users`, `characters`, `roles`, `permissions`, `role_permissions`, `character_roles`, `rbac_audit_log`, and for the job engine `jobs`, `job_grades`, `job_permissions`, `job_grade_permissions`, `job_memberships` and `job_audit_log`, with indexes and cascading foreign keys.
+`config/migration.lua` declares the core schema, applied on startup: `users`, `characters`, `roles`, `permissions`, `role_permissions`, `character_roles`, `rbac_audit_log`, for the job engine `jobs`, `job_grades`, `job_permissions`, `job_grade_permissions`, `job_memberships` and `job_audit_log`, and for the accounts engine `accounts`, `account_access` and `account_mutations`, with indexes and cascading foreign keys.
 
 ## Configuration
 
@@ -229,7 +304,8 @@ All options live in `config/` and are documented inline.
 | `config/migration.lua` | server | The core schema. |
 | `config/permissions.lua` | server | Role seeding and defaults. |
 | `config/connection.lua` | server | Hardcap enforcement. |
-| `config/jobs.lua` | server, consumers | Domain limits (`maxJobs`, `maxOnDuty`, `false` for none), the temporary unemployment allowance, auditing. |
+| `config/jobs.lua` | server, consumers | Domain limits (`maxJobs`, `maxOnDuty`, `false` for none), auditing. |
+| `config/accounts.lua` | server, consumers | Negative balance policy, mutation journal, batch and amount limits. |
 
 ## Conventions
 
