@@ -2,7 +2,7 @@
 
 The core of the SIKU ecosystem — a modular, high-performance foundation for immersive FiveM roleplay experiences. Built with clean architecture, modern Lua 5.4 standards, scalability, and long-term maintainability.
 
-![Version](https://img.shields.io/badge/version-1.4.0-4785bd)
+![Version](https://img.shields.io/badge/version-1.5.0-4785bd)
 ![FiveM](https://img.shields.io/badge/fx__version-cerulean-4785bd)
 ![Lua](https://img.shields.io/badge/Lua-5.4-4785bd)
 
@@ -17,6 +17,7 @@ The core of the SIKU ecosystem — a modular, high-performance foundation for im
 - **User & character lifecycle** — connected players cached with their active character, playtime tracked, positions persisted, cleaned up on disconnect.
 - **Job engine** — the single authority on jobs: resources declare their organisation (grades, permissions, legal or illegal), the core stores it, holds every membership per character, resolves permissions and duty, counts who is in, and tells the ecosystem what changed. Multi-job by design, no boss, no primary job.
 - **Accounts engine** — the foundation of every balance: accounts as first-class entities owned by a character or a job, zero or many per owner, a balance the core alone moves through atomic batches, a journal of every mutation, grants for characters who are not the owner, and states. The core knows an account exists, whom it belongs to and what it holds; the bank decides why the value moves.
+- **Licenses engine** — the structure of every permit: resources declare the licenses they deliver (a driving license, a weapon permit, a hunting license), the core holds who holds what, with a state, points, an issue date, an expiry and free metadata, journals every change and tells the ecosystem. The driving school decides when an exam is passed, the police decides when points are taken; the core only keeps the truth.
 - **Routing buckets** — instance management with lockdown modes, per-player instances and automatic cleanup.
 - **World adjustments** — a single configurable client module for HUD components, ped/vehicle density, dispatch, scenarios, health regen, PvP and Discord Rich Presence.
 - **Resilient by design** — cron jobs, spatial ticks, intervals and migrations are isolated so one failing callback never kills the subsystem.
@@ -108,6 +109,7 @@ Stateful singletons living in the core, reached through the same namespace:
 | `Siku.persistence` | Position and playtime capture, character and user writes. |
 | `Siku.jobs` | The job engine: registry, memberships, grades, permissions, duty, counters, audit. See [Jobs](#jobs). |
 | `Siku.accounts` | The accounts engine: accounts, balances, atomic mutations, journal, grants, states. See [Accounts](#accounts). |
+| `Siku.licenses` | The licenses engine: declared licenses, holdings per character, states, points, expiry, audit. See [Licenses](#licenses). |
 
 The `Siku.User` and `Siku.Character` classes stay inside the core: consumers receive cached instances as data and act on them through the services.
 
@@ -285,9 +287,107 @@ Nothing goes through a state bag: a character receives the accounts it owns or h
 | `/freezeaccount <account>` | `accounts.manage` | Freezes an account, or reopens a frozen one. |
 | `/closeaccount <account>` | `accounts.manage` | Closes an account whose balance is zero. |
 
+## Licenses
+
+The core owns the structure of every license and nothing of its meaning. A license is a type a resource declares: a driving license, a weapon permit, a hunting license, a pilot license, a business license, whatever a resource wants to name. The core keeps no catalogue of its own. A character holds zero, one or several of them, each with a state, points when the license has some, an issue date, an expiry when the license has one, and free metadata. The driving school decides when the exam is passed, the police decides when points are taken or the license is suspended, the gun shop decides what a weapon permit allows: the core records, answers and tells.
+
+### Declaring a license
+
+A resource registers the licenses it delivers once at start. The first registration writes the definition, the next ones update it: the declaration is the truth, there is no in-game editing.
+
+```lua
+local drive = Siku.licenses.get('drive_car')
+
+drive:register({
+  label = 'Permis B',
+  group = 'driving',        -- optional, for display only
+  points = { max = 12 },    -- optional, no points without it
+  validity = 1825,          -- optional, in days, never expires without it
+})
+
+Siku.licenses.get('weapon'):register({ label = "Permis de port d'arme", group = 'firearms', validity = 365 })
+Siku.licenses.get('hunting'):register({ label = 'Permis de chasse', group = 'outdoor' })
+```
+
+The `group` is a label the core never interprets: it only lets a menu or an ID card put `drive_car`, `drive_bike` and `drive_truck` together. A license whose resource stopped stays known, readable, valid and issuable: it is a document, not a service. The flag only answers `isActive` and guards the declaration: a resource registering a license another running resource declared is refused with `owned_elsewhere`.
+
+### Holding a license
+
+A holding is `valid`, `suspended` or `revoked`. Two states are derived at read time: `expired` for a valid holding past its expiry, and back to `valid` for a suspension past its end. `isValid` answers true only for a holding that reads `valid`.
+
+```lua
+Siku.licenses.issue(characterId, 'drive_car', { performedBy = instructorId, reason = 'exam' })
+Siku.licenses.suspend(characterId, 'drive_car', { endsAt = '2026-11-01 00:00:00', performedBy = officerId, reason = 'dui' })
+Siku.licenses.lift(characterId, 'drive_car', { performedBy = officerId })
+Siku.licenses.revoke(characterId, 'drive_car', { performedBy = judgeId, reason = 'court' })
+Siku.licenses.removePoints(characterId, 'drive_car', 3, { performedBy = officerId, reason = 'speeding' })
+```
+
+`issue(characterId, license, options?)` creates the holding, `valid`, points at `max`, expiry from the license validity unless `expiresAt` or `validity` (days) says otherwise, metadata as given. On a holding read as `revoked` or `expired` it reissues and resets everything; on one read as `valid` or `suspended` it refuses with `already_held`. `suspend` takes an optional `endsAt` date, indefinite without it; `lift` ends a suspension; `revoke` is definitive and keeps the row for the history; `withdraw` deletes the row, for staff and maintenance. `setExpiry(characterId, license, expiresAt?)` prolongs, sets or clears the expiry; `setMetadata` replaces the free table.
+
+Points are optional per license. `addPoints`, `removePoints` and `setPoints` move a `valid` holding between 0 and `max`; a license without points refuses with `no_points`. When the balance reaches zero the core fires `pointsExhausted` and nothing else: suspending, revoking or ignoring is the consumer's decision.
+
+Every mutation takes a context `{ performedBy?, reason? }` and lands in `license_audit_log` when `LicensesConfig.audit` is on. Refusals come back as `false, reason`: `unknown_license`, `unknown_character`, `already_held`, `not_held`, `not_valid`, `not_suspended`, `revoked`, `expired`, `no_points`, `invalid_amount`, `invalid_date`, `invalid_options`, `invalid_metadata`, `invalid_context`, `unchanged`, `owned_elsewhere`, `not_ready`.
+
+Dates travel as `YYYY-MM-DD HH:MM:SS` strings and are also accepted as unix timestamps.
+
+### Reading
+
+`exists`, `isActive`, `getDefinition(license)`, `getAll(group?)` describe the licenses. `getHoldings(characterId)` lists what a character holds, sorted by group then label; `getHolding(characterId, license)`, `has` (whatever the state), `isValid`, `getPoints` read one. `getHolders(license)` lists every holder with their state and `countHolders` counts them. A holding as it leaves the engine:
+
+```lua
+{
+  license = 'drive_car', label = 'Permis B', group = 'driving',
+  state = 'valid',           -- valid | suspended | revoked | expired
+  points = 9, maxPoints = 12, -- nil for a license without points
+  issuedAt = '2026-10-12 18:00:00',
+  expiresAt = '2031-10-11 18:00:00', -- nil when it never expires
+  suspendedUntil = nil,      -- a date while suspended for a time
+  issuedBy = 42,             -- nil for the console or code
+  metadata = {},
+}
+```
+
+### Following the licenses
+
+| Event | Payload |
+|---|---|
+| `siku:licenses:registered` | `name, definition` |
+| `siku:licenses:deactivated` | `name` |
+| `siku:licenses:issued` | `characterId, license, holding, sessionId?` |
+| `siku:licenses:suspended` | `characterId, license, endsAt?, sessionId?` |
+| `siku:licenses:lifted` | `characterId, license, sessionId?` |
+| `siku:licenses:revoked` | `characterId, license, sessionId?` |
+| `siku:licenses:expired` | `characterId, license, sessionId?` |
+| `siku:licenses:withdrawn` | `characterId, license, sessionId?` |
+| `siku:licenses:pointsChanged` | `characterId, license, points, delta, reason?, performedBy?, sessionId?` |
+| `siku:licenses:pointsExhausted` | `characterId, license, sessionId?` |
+| `siku:licenses:metadataChanged` | `characterId, license, metadata` |
+
+A suspension reaching its end and a holding reaching its expiry are noticed by a minute cron for characters in play, which fires `lifted` or `expired` and refreshes the client. Offline, the derived state is enough.
+
+### On the client
+
+Nothing goes through a state bag: a character receives its own holdings and nobody else's, already derived by the server. `Siku.licenses.getMine()`, `get(license)`, `has(license)`, `isValid(license)`, `getPoints(license)` read the local copy, `isSynced()` says whether it arrived, `onChanged(handler)` follows it; `getDefinition(license)` and `getAll(group?)` ask the server. Another character's licenses never reach a client: a police check happens on the server.
+
+### Handle
+
+`Siku.licenses.get(name)` answers a handle on the server whose reads are copies and whose writes go back to the core: `register`, `exists`, `isActive`, `getDefinition`, `getHolders`, `countHolders`, `isHeldBy`, `isValidFor`, `getHolding`, `getPoints`, `issue`, `suspend`, `lift`, `revoke`, `withdraw`, `setMetadata`, `setExpiry`, `addPoints`, `removePoints`, `setPoints`. Every function also exists flat on `Siku.licenses` with the character id first and the license name second.
+
+### Commands
+
+| Command | Permission | Effect |
+|---|---|---|
+| `/licenses [player]` | own, `licenses.manage` for others | Lists the holdings with their state and points. |
+| `/grantlicense <player> <license>` | `licenses.manage` | Issues, or reissues an expired or revoked one. |
+| `/revokelicense <player> <license>` | `licenses.manage` | Revokes. |
+| `/suspendlicense <player> <license> [duration]` | `licenses.manage` | Suspends for a duration (`30m`, `2h`, `7d`), or until lifted. |
+| `/liftlicense <player> <license>` | `licenses.manage` | Lifts a suspension. |
+| `/licensepoints <player> <license> <delta>` | `licenses.manage` | Adds or removes points. |
+
 ## Database
 
-`config/migration.lua` declares the core schema, applied on startup: `users`, `characters`, `roles`, `permissions`, `role_permissions`, `character_roles`, `rbac_audit_log`, for the job engine `jobs`, `job_grades`, `job_permissions`, `job_grade_permissions`, `job_memberships` and `job_audit_log`, and for the accounts engine `accounts`, `account_access` and `account_mutations`, with indexes and cascading foreign keys.
+`config/migration.lua` declares the core schema, applied on startup: `users`, `characters`, `roles`, `permissions`, `role_permissions`, `character_roles`, `rbac_audit_log`, for the job engine `jobs`, `job_grades`, `job_permissions`, `job_grade_permissions`, `job_memberships` and `job_audit_log`, for the accounts engine `accounts`, `account_access` and `account_mutations`, and for the licenses engine `licenses`, `license_holdings` and `license_audit_log`, with indexes and cascading foreign keys.
 
 ## Configuration
 
@@ -306,6 +406,7 @@ All options live in `config/` and are documented inline.
 | `config/connection.lua` | server | Hardcap enforcement. |
 | `config/jobs.lua` | server, consumers | Domain limits (`maxJobs`, `maxOnDuty`, `false` for none), auditing. |
 | `config/accounts.lua` | server, consumers | Negative balance policy, mutation journal, batch and amount limits. |
+| `config/licenses.lua` | server, consumers | Auditing. |
 
 ## Conventions
 

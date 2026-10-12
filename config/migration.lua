@@ -36,7 +36,7 @@ MigrationConfig = {
     ---
     --- The pair (resource, version) is recorded in `siku_migrations`
     --- once applied, and a version already recorded is never replayed.
-    version = '1.4.0',
+    version = '1.5.0',
 
     --- The tables this resource owns.
     ---
@@ -401,6 +401,74 @@ MigrationConfig = {
             onDelete = 'CASCADE',
             onUpdate = 'CASCADE',
           },
+        },
+      },
+      {
+        name = 'licenses',
+        columns = {
+          { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
+          { name = 'name', type = 'VARCHAR(50)', notNull = true, unique = true },
+          { name = 'label', type = 'VARCHAR(100)', notNull = true },
+          { name = 'group_name', type = 'VARCHAR(50)', default = 'NULL' },
+          { name = 'max_points', type = 'INT', unsigned = true, default = 'NULL' },
+          { name = 'validity_days', type = 'INT', unsigned = true, default = 'NULL' },
+          { name = 'resource', type = 'VARCHAR(100)', default = 'NULL' },
+          { name = 'created_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
+        },
+        indexes = {
+          { name = 'idx_licenses_group', columns = { 'group_name' } },
+        },
+      },
+      {
+        name = 'license_holdings',
+        columns = {
+          { name = 'character_id', type = 'INT', unsigned = true, notNull = true, primaryKey = true },
+          { name = 'license_id', type = 'INT', unsigned = true, notNull = true, primaryKey = true },
+          { name = 'state', type = 'VARCHAR(10)', notNull = true, default = 'valid' },
+          { name = 'points', type = 'INT', unsigned = true, default = 'NULL' },
+          { name = 'issued_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
+          { name = 'expires_at', type = 'TIMESTAMP', default = 'NULL' },
+          { name = 'suspended_until', type = 'TIMESTAMP', default = 'NULL' },
+          { name = 'issued_by', type = 'INT', unsigned = true, default = 'NULL' },
+          { name = 'metadata', type = 'TEXT', default = 'NULL' },
+          { name = 'updated_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP' },
+        },
+        indexes = {
+          { name = 'idx_license_holdings_license', columns = { 'license_id' } },
+          { name = 'idx_license_holdings_state', columns = { 'state' } },
+          { name = 'idx_license_holdings_expires_at', columns = { 'expires_at' } },
+        },
+        foreignKeys = {
+          {
+            column = 'character_id',
+            references = { table = 'characters', column = 'id' },
+            onDelete = 'CASCADE',
+            onUpdate = 'CASCADE',
+          },
+          {
+            column = 'license_id',
+            references = { table = 'licenses', column = 'id' },
+            onDelete = 'CASCADE',
+            onUpdate = 'CASCADE',
+          },
+        },
+      },
+      {
+        name = 'license_audit_log',
+        columns = {
+          { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
+          { name = 'action', type = 'VARCHAR(50)', notNull = true },
+          { name = 'license_id', type = 'INT', unsigned = true, default = 'NULL' },
+          { name = 'target_character_id', type = 'INT', unsigned = true, default = 'NULL' },
+          { name = 'performed_by', type = 'INT', unsigned = true, default = 'NULL' },
+          { name = 'details', type = 'TEXT', default = 'NULL' },
+          { name = 'created_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
+        },
+        indexes = {
+          { name = 'idx_license_audit_action', columns = { 'action' } },
+          { name = 'idx_license_audit_license', columns = { 'license_id' } },
+          { name = 'idx_license_audit_target', columns = { 'target_character_id' } },
+          { name = 'idx_license_audit_created_at', columns = { 'created_at' } },
         },
       },
     },

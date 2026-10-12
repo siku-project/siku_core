@@ -18,6 +18,7 @@ CreateThread(function()
   _SikuInternal.InitPermissions()
   _SikuInternal.InitJobs()
   _SikuInternal.InitAccounts()
+  _SikuInternal.InitLicenses()
 
   Siku.print.success('Siku core initialization finished ! Framework Ready')
 end)

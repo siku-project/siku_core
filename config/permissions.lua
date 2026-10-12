@@ -62,6 +62,7 @@ PermissionSeedConfig = {
         'permissions.setrole',
         'jobs.manage',
         'accounts.manage',
+        'licenses.manage',
       },
     },
     {
