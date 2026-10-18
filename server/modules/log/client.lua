@@ -2,21 +2,23 @@ local BATCH_EVENT <const> = 'siku:log:batch'
 local MAX_OFFSET_MS <const> = 60000
 local MAX_RECORDS <const> = 50
 local MAX_FIELD <const> = 1024
+local MAX_KEY <const> = 128
 local MAX_DEPTH <const> = 3
-local MAX_KEYS <const> = 32
-local MAX_LIST <const> = 50
+local MAX_ENTRIES <const> = 50
 local MAX_ENTITIES <const> = 16
+local MAX_EVENT <const> = 96
+local MAX_OUTCOME <const> = 32
+local MAX_MESSAGE <const> = 2048
+local MAX_NAME <const> = 256
+local MAX_STACK <const> = 4096
+local ID_LENGTH <const> = 32
+local ENTITY_TYPE <const> = 32
+local BYTES_BURST_SECONDS <const> = 3
 local DROP_REPORT_MS <const> = 60000
 
-_SikuInternal.log = _SikuInternal.log or {}
-
-local service <const> = _SikuInternal.log
-local config <const> = Siku.config.log
-local client <const> = config.client or {}
-local perSecond <const> = math.max(tonumber(client.perSecond) or 30, 1)
-local burst <const> = math.max(tonumber(client.burst) or 90, perSecond)
-local bytesPerSecond <const> = math.max(tonumber(client.bytesPerSecond) or 32768, 1024)
-local bytesBurst <const> = bytesPerSecond * 3
+local internal <const> = _SikuInternal.log
+local settings <const> = internal.settings
+local bytesBurst <const> = settings.bytesPerSecond * BYTES_BURST_SECONDS
 
 local buckets <const> = {}
 
@@ -24,29 +26,36 @@ local function bucket(sessionId)
   local entry = buckets[sessionId]
 
   if not entry then
-    entry = { tokens = burst, bytes = bytesBurst, at = GetGameTimer(), dropped = 0, reportedAt = nil }
+    entry = { tokens = settings.burst, bytes = bytesBurst, at = GetGameTimer(), dropped = 0, reportedAt = nil }
     buckets[sessionId] = entry
   end
 
   return entry
 end
 
-local function refill(entry)
-  local now <const> = GetGameTimer()
+local function refill(entry, now)
   local elapsed <const> = (now - entry.at) / 1000
 
   if elapsed > 0 then
-    entry.tokens = math.min(burst, entry.tokens + elapsed * perSecond)
-    entry.bytes = math.min(bytesBurst, entry.bytes + elapsed * bytesPerSecond)
+    entry.tokens = math.min(settings.burst, entry.tokens + elapsed * settings.perSecond)
+    entry.bytes = math.min(bytesBurst, entry.bytes + elapsed * settings.bytesPerSecond)
     entry.at = now
   end
 end
 
-local function sized(value, depth)
+local function text(value, max)
+  if type(value) ~= 'string' then
+    return nil
+  end
+
+  return value:sub(1, max)
+end
+
+local function bounded(value, depth)
   local kind <const> = type(value)
 
   if kind == 'string' then
-    return #value <= MAX_FIELD and value or value:sub(1, MAX_FIELD)
+    return value:sub(1, MAX_FIELD)
   end
 
   if kind == 'number' or kind == 'boolean' or value == nil then
@@ -63,14 +72,14 @@ local function sized(value, depth)
   for key, entry in pairs(value) do
     count = count + 1
 
-    if count > math.max(MAX_KEYS, MAX_LIST) then
+    if count > MAX_ENTRIES then
       break
     end
 
-    local keyKind <const> = type(key)
-
-    if keyKind == 'string' or keyKind == 'number' then
-      out[keyKind == 'string' and key:sub(1, 128) or key] = sized(entry, depth + 1)
+    if type(key) == 'string' then
+      out[key:sub(1, MAX_KEY)] = bounded(entry, depth + 1)
+    elseif type(key) == 'number' then
+      out[key] = bounded(entry, depth + 1)
     end
   end
 
@@ -88,17 +97,70 @@ local function entities(list)
     local entity <const> = list[i]
 
     if type(entity) == 'table' and type(entity.type) == 'string' and (type(entity.id) == 'string' or type(entity.id) == 'number') then
-      local clean <const> = sized(entity, 1)
+      local clean <const> = bounded(entity, 1)
 
-      if clean then
-        clean.type = entity.type:sub(1, 32):lower()
-        clean.session = nil
-        out[#out + 1] = clean
-      end
+      clean.type = entity.type:sub(1, ENTITY_TYPE):lower()
+      clean.session = nil
+      out[#out + 1] = clean
     end
   end
 
   return #out > 0 and out or nil
+end
+
+local function normalizeLog(record, receivedAt, batchNow)
+  if type(record.ev) ~= 'string' or type(record.t) ~= 'number' then
+    return nil
+  end
+
+  local offset <const> = math.max(math.min(batchNow - record.t, MAX_OFFSET_MS), 0)
+  local out <const> = {
+    k = 'log',
+    t = receivedAt - offset,
+    id = type(record.id) == 'string' and #record.id == ID_LENGTH and record.id or nil,
+    ev = record.ev:sub(1, MAX_EVENT),
+    lvl = record.lvl,
+    cat = 'script',
+    out = text(record.out, MAX_OUTCOME),
+    msg = text(record.msg, MAX_MESSAGE),
+    res = record.res,
+    data = bounded(record.data, 0),
+    ents = entities(record.ents),
+    trace = record.trace,
+    span = record.span,
+    stack = text(record.stack, MAX_STACK),
+  }
+
+  if type(record.loc) == 'table' then
+    out.loc = { file = bounded(record.loc.file, 0), line = tonumber(record.loc.line) }
+  end
+
+  return out
+end
+
+local function normalizeSpan(record, receivedAt, batchNow)
+  if type(record.start) ~= 'number' or type(record['end']) ~= 'number' then
+    return nil
+  end
+
+  local startOffset <const> = math.max(math.min(batchNow * 1000 - record.start, MAX_OFFSET_MS * 1000), 0)
+  local duration <const> = math.max(math.min(record['end'] - record.start, MAX_OFFSET_MS * 1000), 0)
+  local start <const> = receivedAt * 1000 - startOffset
+
+  return {
+    k = 'span',
+    start = start,
+    ['end'] = start + duration,
+    trace = record.trace,
+    span = record.span,
+    parent = text(record.parent, ID_LENGTH),
+    name = text(record.name, MAX_NAME),
+    kind = record.kind,
+    status = record.status == 'error' and 'error' or 'ok',
+    err = text(record.err, MAX_MESSAGE),
+    res = record.res,
+    attrs = bounded(record.attrs, 1),
+  }
 end
 
 local function normalize(record, receivedAt, batchNow)
@@ -106,57 +168,11 @@ local function normalize(record, receivedAt, batchNow)
     return nil
   end
 
-  local kind <const> = record.k == 'span' and 'span' or 'log'
-  local out <const> = { k = kind }
-
-  if kind == 'log' then
-    if type(record.ev) ~= 'string' or type(record.t) ~= 'number' then
-      return nil
-    end
-
-    local offset <const> = math.max(math.min(batchNow - record.t, MAX_OFFSET_MS), 0)
-
-    out.t = receivedAt - offset
-    out.id = type(record.id) == 'string' and #record.id == 32 and record.id or nil
-    out.ev = record.ev:sub(1, 96)
-    out.lvl = record.lvl
-    out.cat = 'script'
-    out.out = type(record.out) == 'string' and record.out:sub(1, 32) or nil
-    out.msg = type(record.msg) == 'string' and record.msg:sub(1, 2048) or nil
-    out.res = record.res
-    out.data = sized(record.data, 0)
-    out.ents = entities(record.ents)
-    out.trace = record.trace
-    out.span = record.span
-    out.stack = type(record.stack) == 'string' and record.stack:sub(1, 4096) or nil
-
-    if type(record.loc) == 'table' then
-      out.loc = { file = sized(record.loc.file, 0), line = tonumber(record.loc.line) }
-    end
-
-    return out
+  if record.k == 'span' then
+    return normalizeSpan(record, receivedAt, batchNow)
   end
 
-  if type(record.start) ~= 'number' or type(record['end']) ~= 'number' then
-    return nil
-  end
-
-  local startOffset <const> = math.max(math.min(batchNow * 1000 - record.start, MAX_OFFSET_MS * 1000), 0)
-  local duration <const> = math.max(math.min(record['end'] - record.start, MAX_OFFSET_MS * 1000), 0)
-
-  out.start = receivedAt * 1000 - startOffset
-  out['end'] = out.start + duration
-  out.trace = record.trace
-  out.span = record.span
-  out.parent = type(record.parent) == 'string' and record.parent or nil
-  out.name = type(record.name) == 'string' and record.name:sub(1, 256) or nil
-  out.kind = record.kind
-  out.status = record.status == 'error' and 'error' or 'ok'
-  out.err = type(record.err) == 'string' and record.err:sub(1, 2048) or nil
-  out.res = record.res
-  out.attrs = sized(record.attrs, 1)
-
-  return out
+  return normalizeLog(record, receivedAt, batchNow)
 end
 
 local function reportDrops(sessionId, entry, now)
@@ -177,21 +193,14 @@ local function reportDrops(sessionId, entry, now)
   })
 end
 
-RegisterNetEvent(BATCH_EVENT, function(payload)
-  local sessionId <const> = source
-
-  if type(sessionId) ~= 'number' or sessionId <= 0 or type(payload) ~= 'table' or type(payload.records) ~= 'table' then
-    return
-  end
-
+local function intake(sessionId, payload)
   local entry <const> = bucket(sessionId)
   local now <const> = GetGameTimer()
-
-  refill(entry)
-
   local records <const> = payload.records
   local count <const> = math.min(#records, MAX_RECORDS)
   local cost <const> = #json.encode(records)
+
+  refill(entry, now)
 
   if entry.bytes < cost then
     entry.dropped = entry.dropped + count
@@ -224,10 +233,20 @@ RegisterNetEvent(BATCH_EVENT, function(payload)
   end
 
   if #accepted > 0 then
-    service.ingest(accepted, 'client', 'client', sessionId)
+    internal.ingest(accepted, 'client', 'client', sessionId)
   end
 
   reportDrops(sessionId, entry, now)
+end
+
+RegisterNetEvent(BATCH_EVENT, function(payload)
+  local sessionId <const> = source
+
+  if type(sessionId) ~= 'number' or sessionId <= 0 or type(payload) ~= 'table' or type(payload.records) ~= 'table' then
+    return
+  end
+
+  intake(sessionId, payload)
 end)
 
 AddEventHandler('playerDropped', function()

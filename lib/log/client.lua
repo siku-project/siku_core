@@ -1,71 +1,47 @@
 local BATCH_EVENT <const> = 'siku:log:batch'
-local CLIENT_FLUSH_MS <const> = 1000
-local MICRO <const> = 1000
+local FLUSH_MIN_MS <const> = 1000
+local DEFAULT_BATCH_BYTES <const> = 24576
+local DEFAULT_BATCH_RECORDS <const> = 50
 
-local config <const> = Siku.config.log
-local client <const> = config.client or {}
-local maxBytes <const> = tonumber(client.maxBatchBytes) or 24576
-local maxRecords <const> = tonumber(client.maxBatchRecords) or 50
+local settings <const> = internal.settings
+local maxBytes <const> = tonumber(settings.client.maxBatchBytes) or DEFAULT_BATCH_BYTES
+local maxRecords <const> = tonumber(settings.client.maxBatchRecords) or DEFAULT_BATCH_RECORDS
 
-local droppedBytes = 0
+local oversized = 0
 
-internal.allowAudit = false
-internal.allowSystem = false
-internal.setOrigin('client')
-internal.flushMs = math.max(internal.flushMs, CLIENT_FLUSH_MS)
-
-internal.now = GetGameTimer
-
-internal.monotonicUs = function()
-  return GetGameTimer() * MICRO
-end
-
-local function trim(batch)
+local function slice(batch, from, to)
   local out <const> = {}
 
-  for i = 1, math.min(#batch, maxRecords) do
-    out[i] = batch[i]
+  for i = from, to do
+    out[#out + 1] = batch[i]
   end
 
-  return out, #batch - #out
+  return out
 end
 
 local function deliver(batch)
-  local records <const>, overflow <const> = trim(batch)
-  local payload <const> = { now = GetGameTimer(), records = records, dropped = overflow + droppedBytes }
+  local records <const> = slice(batch, 1, math.min(#batch, maxRecords))
+  local payload <const> = { now = GetGameTimer(), records = records, dropped = (#batch - #records) + oversized }
   local encoded <const> = json.encode(payload)
 
   if #encoded > maxBytes then
-    if #records > 1 then
-      local half <const> = #records // 2
-      local first <const> = {}
-      local second <const> = {}
-
-      for i = 1, half do
-        first[i] = records[i]
-      end
-
-      for i = half + 1, #records do
-        second[#second + 1] = records[i]
-      end
-
-      deliver(first)
-      deliver(second)
-
+    if #records == 1 then
+      oversized = oversized + 1
       return
     end
 
-    droppedBytes = droppedBytes + 1
+    local half <const> = #records // 2
+
+    deliver(slice(records, 1, half))
+    deliver(slice(records, half + 1, #records))
 
     return
   end
 
-  droppedBytes = 0
+  oversized = 0
   TriggerServerEvent(BATCH_EVENT, payload)
 end
 
-internal.send = deliver
-
-internal.flushLoop()
+internal.startDelivery(deliver, math.max(settings.flushMs, FLUSH_MIN_MS))
 
 return {}
