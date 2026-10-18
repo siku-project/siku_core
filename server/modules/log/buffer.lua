@@ -51,8 +51,11 @@ function service.push(encoded)
   seq = seq + 1
   received = received + 1
   last = last + 1
-  entries[last] = encoded
-  bytes = bytes + #encoded
+
+  local stamped <const> = encoded:sub(1, -2) .. ',"seq":' .. seq .. '}'
+
+  entries[last] = stamped
+  bytes = bytes + #stamped
 
   if last - first + 1 == 1 then
     firstSeq = seq
