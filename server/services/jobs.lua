@@ -283,6 +283,27 @@ end
 ---@param details? string What changed.
 ---@return nil
 function _SikuInternal.jobs.audit(action, jobId, targetCharacterId, performedBy, details)
+  local job <const> = jobId and state.byId[jobId] or nil
+  local entities <const> = {}
+
+  if job then
+    entities[#entities + 1] = { type = 'job', id = job.name, role = 'subject', label = job.label }
+  end
+
+  if targetCharacterId then
+    entities[#entities + 1] = { type = 'character', id = targetCharacterId, role = 'target' }
+  end
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('jobs.' .. action, {
+    message = ('%s %s%s'):format(action, job and job.name or tostring(jobId), details and (' ' .. details) or ''),
+    entities = entities,
+    data = { details = details },
+  })
+
   if not JobsConfig.audit then
     return
   end

@@ -241,6 +241,27 @@ function internal.sortHoldings(holdings)
 end
 
 function internal.audit(action, licenseId, targetCharacterId, performedBy, details)
+  local license <const> = licenseId and state.byId[licenseId] or nil
+  local entities <const> = {}
+
+  if license then
+    entities[#entities + 1] = { type = 'license', id = license.name, role = 'subject', label = license.label }
+  end
+
+  if targetCharacterId then
+    entities[#entities + 1] = { type = 'character', id = targetCharacterId, role = 'target' }
+  end
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('licenses.' .. action, {
+    message = ('%s %s%s'):format(action, license and license.name or tostring(licenseId), details and details ~= '' and (' ' .. details) or ''),
+    entities = entities,
+    data = { details = details },
+  })
+
   if not LicensesConfig.audit then
     return
   end
