@@ -21,4 +21,5 @@ CreateThread(function()
   _SikuInternal.InitLicenses()
 
   Siku.print.success('Siku core initialization finished ! Framework Ready')
+  _SikuInternal.log.ready()
 end)

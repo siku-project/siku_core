@@ -95,6 +95,18 @@ local function writeAuditLog(action, targetType, targetId, performedBy, details)
     'INSERT INTO rbac_audit_log (action, target_type, target_id, performed_by, details) VALUES (?, ?, ?, ?, ?)',
     { action, targetType, targetId, performedBy, details }
   )
+
+  local entities <const> = { { type = targetType, id = targetId, role = 'target' } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('permissions.' .. action, {
+    message = ('%s %s %s%s'):format(action, targetType, tostring(targetId), details and (' ' .. details) or ''),
+    entities = entities,
+    data = { details = details },
+  })
 end
 
 --- Initialize the permission system (seed, cache, expired roles cleanup cron).

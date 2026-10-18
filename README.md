@@ -2,7 +2,7 @@
 
 The core of the SIKU ecosystem — a modular, high-performance foundation for immersive FiveM roleplay experiences. Built with clean architecture, modern Lua 5.4 standards, scalability, and long-term maintainability.
 
-![Version](https://img.shields.io/badge/version-1.5.0-4785bd)
+![Version](https://img.shields.io/badge/version-1.6.0-4785bd)
 ![FiveM](https://img.shields.io/badge/fx__version-cerulean-4785bd)
 ![Lua](https://img.shields.io/badge/Lua-5.4-4785bd)
 
@@ -17,6 +17,7 @@ The core of the SIKU ecosystem — a modular, high-performance foundation for im
 - **User & character lifecycle** — connected players cached with their active character, playtime tracked, positions persisted, cleaned up on disconnect.
 - **Job engine** — the single authority on jobs: resources declare their organisation (grades, permissions, legal or illegal), the core stores it, holds every membership per character, resolves permissions and duty, counts who is in, and tells the ecosystem what changed. Multi-job by design, no boss, no primary job.
 - **Accounts engine** — the foundation of every balance: accounts as first-class entities owned by a character or a job, zero or many per owner, a balance the core alone moves through atomic batches, a journal of every mutation, grants for characters who are not the owner, and states. The core knows an account exists, whom it belongs to and what it holds; the bank decides why the value moves.
+- **Logs & tracing** — one API, `Siku.log`, for structured events, audits and spans from any resource on either side: entities resolved to characters and users, Lua errors and player sessions captured by the core, automatic tracing of SQL, callbacks and commands, served to the SIKU Agent over FXServer's HTTP port. See [Logs & tracing](#logs--tracing).
 - **Licenses engine** — the structure of every permit: resources declare the licenses they deliver (a driving license, a weapon permit, a hunting license), the core holds who holds what, with a state, points, an issue date, an expiry and free metadata, journals every change and tells the ecosystem. The driving school decides when an exam is passed, the police decides when points are taken; the core only keeps the truth.
 - **Routing buckets** — instance management with lockdown modes, per-player instances and automatic cleanup.
 - **World adjustments** — a single configurable client module for HUD components, ped/vehicle density, dispatch, scenarios, health regen, PvP and Discord Rich Presence.
@@ -81,10 +82,11 @@ end
 | `isCallable` | shared | Callable check that tolerates the `__call` tables functions become across exports. |
 | `keybind` | client | Keybinds in the GTA settings with press/release callbacks, enable/disable, `isPressed`. |
 | `locale` | shared | `T(key, ...)` — loads the calling resource's translations and formats the arguments. |
+| `log` | both | Structured logs, audits, state transitions and spans, buffered and delivered to the core, then to the SIKU Agent and Telemetry. See [Logs & tracing](#logs--tracing). |
 | `math` | shared | Relative coords, number/currency formatting, lerps and interpolators, plus a seeded PRNG: weighted choice, shuffle, UUID v4/v7. |
 | `notification` | both | Guarded proxy to [`siku_notification`](https://github.com/siku-project/siku_notification). |
 | `player` | both | Closest / nearby players; identifiers on the server. |
-| `print` | shared | Leveled color logger (`error` → `debug`, `throw`), filtered by the `siku:logLevel` convar, cycle-safe serialization. |
+| `print` | shared | Leveled color logger (`error` → `debug`, `throw`), filtered by the `siku:logLevel` convar, cycle-safe serialization; `warn` and `error` also record a `script.warning` / `script.error` event. |
 | `progress` | shared | Guarded facade over [`siku_progress`](https://github.com/siku-project/siku_progress): every family, every control. |
 | `raycast` | client | Shape tests from coordinates, from the camera or along an entity's forward vector. |
 | `spatial` | both | Point-in-shape geometry, a cell-bucketed grid and a zone registry; client-side enter/exit tracking, proximity points, shared per-frame tick, debug markers. |
@@ -385,6 +387,112 @@ Nothing goes through a state bag: a character receives its own holdings and nobo
 | `/liftlicense <player> <license>` | `licenses.manage` | Lifts a suspension. |
 | `/licensepoints <player> <license> <delta>` | `licenses.manage` | Adds or removes points. |
 
+## Logs & tracing
+
+`Siku.log` is the one entry point for observability. A resource records what happened; the core enriches it, buffers it and serves it to the [SIKU Agent](https://github.com/siku-project/siku-agent), which ships it to SIKU Telemetry and the Control Center. Nothing here ever blocks a tick: a call builds one table and queues it, delivery happens later in batches, and when nobody collects the records the buffer fills, drops the oldest and counts them.
+
+### Writing logs
+
+```lua
+Siku.log.info('Cargo delivered', { route = 'docks', weight = 12.5 })
+Siku.log.warn('Low stock', { item = 'water' })
+Siku.log.error('Vehicle spawn failed', { model = 'adder' }, { outcome = 'failure' })
+```
+
+`trace`, `debug`, `info`, `warn`, `error` and `fatal` take a message, an optional table of data and optional options. The level is the technical severity; the outcome (`success`, `failure`, `denied`, `cancelled` or any short word) is a separate fact.
+
+### Structured events
+
+```lua
+Siku.log.emit('inventory.transfer', {
+  outcome = 'success',
+  data = {
+    items = { { name = 'water', count = 2 }, { name = 'radio', count = 1 } },
+    reason = 'gift',
+  },
+  entities = {
+    { type = 'player', id = source, role = 'actor' },
+    { type = 'player', id = target, role = 'target' },
+    { type = 'vehicle', id = netId, role = 'container', label = 'Sultan RS', plate = 'ABC 123' },
+  },
+})
+```
+
+- The event name is stable, lowercase, dotted: `domain.action`.
+- `data` is free: scalars, lists and nested tables, bounded by `config/log.lua` (depth, keys, string length, size). The first level is filterable in the Control Center, the whole value stays readable.
+- `entities` name who and what was involved, with a `type`, an `id`, a `role` and an optional `label`. A `player` entity carrying a session id is resolved by the core into the character (`character`, id and full name) and the user (`user`, id and player name) at that moment, so the event stays readable days later when the session id has been reused. Any other type is kept as given.
+- `message` is optional. Known events are rendered by the Control Center from their data; unknown ones show their name and attributes.
+- `dedupe = <ms>` with an optional `key` suppresses identical repeats inside the window and reports how many were suppressed.
+
+The core adds the resource, the origin (`server` or `client`), the timestamp, the trust level and the trace context when the call happens inside a span.
+
+### Audit events
+
+```lua
+Siku.log.audit('bank.transfer', {
+  outcome = 'success',
+  data = { amount = 2500, reason = 'rent' },
+  entities = {
+    { type = 'account', id = fromId, role = 'source' },
+    { type = 'account', id = toId, role = 'destination' },
+    { type = 'player', id = source, role = 'actor' },
+  },
+})
+```
+
+Audit events are server only, kept longer by Telemetry and never produced by a client: a client calling `Siku.log.audit` records a plain script event flagged `declaredAudit`. The core audits its own sensitive operations: role and permission changes, account mutations, job memberships and grades, licenses, and every command guarded by a permission.
+
+### State transitions
+
+For situations that persist, record the transition rather than every check:
+
+```lua
+Siku.log.state('vehicle.speeding:' .. netId, speed > 180, {
+  value = speed,
+  holdMs = 2000,
+  entities = { { type = 'vehicle', id = netId, role = 'subject' }, { type = 'player', id = driver, role = 'actor' } },
+})
+```
+
+The first active call records `vehicle.speeding.started`; later active calls only track the maximum; once inactive for `holdMs`, `vehicle.speeding.ended` carries the duration and the maximum. `enter` and `exit` override the event names. Detection stays in the resource; the core only records what it was told.
+
+### Client side
+
+The same API works in client scripts. Records are batched, sent to the server at most once per second and well under FXServer's network limits, then validated and rate limited per player. Client records are `declared`: the actor is resolved from the session by the server, the category is always `script`, and whatever the client claims about itself is kept as a claim.
+
+### Tracing
+
+```lua
+local ok, reason = Siku.log.span('bank.transfer', function()
+  local from = MySQL.single.await('SELECT balance FROM accounts WHERE id = ?', { fromId })
+  Siku.log.info('balance checked', { balance = from.balance })
+  return Siku.accounts.transfer(fromId, toId, amount, { performedBy = characterId })
+end, { attributes = { amount = amount } })
+```
+
+A span measures one operation. Spans nest, errors are recorded then rethrown, and everything logged inside carries the trace and span ids. The core instruments on its own what it controls: oxmysql queries (`db.query`, statement without parameters), callbacks (client and server side, with the context carried across the network), commands, and threads or timers started inside a span. `Siku.log.context()` returns the current ids for anything else. Root spans opened by the core itself are sampled at `tracing.autoSampleRate`, explicit spans at `tracing.sampleRate`.
+
+There is no instruction-level hook in FXServer's Lua sandbox: a trace shows the instrumented operations only, never invented steps.
+
+### What the core records by itself
+
+| Event | Category | When |
+|---|---|---|
+| `core.ready`, `core.stopping` | system | The core finished initialising, or stops. |
+| `resource.started`, `resource.stopped`, `resource.start_failed` | system | Any resource of the server. |
+| `player.joined`, `player.dropped` | system | A session starts (identifiers listed in `config/log.lua`) or ends (reason, cause, duration, character). |
+| `character.activated` | system | A character enters play. |
+| `script.error`, `script.warning`, `script.load_error` | system | Lua errors with file, line and stack, warnings, scripts that fail to load, read from the console. |
+| `script.warning`, `script.error` | script | `Siku.print.warn` and `Siku.print.error`. |
+| `log.dropped`, `log.client_dropped` | system | Records lost to a full buffer or to the client limits. |
+| `permissions.*`, `jobs.*`, `licenses.*`, `accounts.mutation`, `command.executed` | audit | The core's own sensitive operations. |
+
+### Collection
+
+The core keeps the encoded records in a bounded ring and serves them on `GET /siku_core/logs/pull?cursor=<seq>&limit=<n>` of FXServer's HTTP port; the cursor of a request acknowledges the previous one. Only loopback addresses may read, or a client presenting the `siku:logToken` convar as a bearer token. `GET /siku_core/logs/health` reports the boot id, the sequence, the buffer and the drops. The agent runs on the same host and polls every second.
+
+Measured in a Lua 5.4 harness with FiveM stubs (not FXServer): a structured event with data and two entities costs about 15 µs to queue, a plain message 5 µs, a span 4 µs, a steady `state` call 0.2 µs; encoding happens later in the core, in batches.
+
 ## Database
 
 `config/migration.lua` declares the core schema, applied on startup: `users`, `characters`, `roles`, `permissions`, `role_permissions`, `character_roles`, `rbac_audit_log`, for the job engine `jobs`, `job_grades`, `job_permissions`, `job_grade_permissions`, `job_memberships` and `job_audit_log`, for the accounts engine `accounts`, `account_access` and `account_mutations`, and for the licenses engine `licenses`, `license_holdings` and `license_audit_log`, with indexes and cascading foreign keys.
@@ -407,6 +515,7 @@ All options live in `config/` and are documented inline.
 | `config/jobs.lua` | server, consumers | Domain limits (`maxJobs`, `maxOnDuty`, `false` for none), auditing. |
 | `config/accounts.lua` | server, consumers | Negative balance policy, mutation journal, batch and amount limits. |
 | `config/licenses.lua` | server, consumers | Auditing. |
+| `config/log.lua` | server, client, consumers | Buffers, client limits, identifiers kept in session events, tracing and sampling, data limits. |
 
 ## Conventions
 
