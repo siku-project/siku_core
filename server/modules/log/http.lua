@@ -5,11 +5,15 @@ local DEFAULT_LIMIT <const> = 2000
 local MAX_LIMIT <const> = 5000
 local VERSION <const> = 1
 local JSON_HEADERS <const> = { ['Content-Type'] = 'application/json', ['Cache-Control'] = 'no-store' }
+local ERRORS <const> = {
+  method = '{"error":"method_not_allowed"}',
+  path = '{"error":"not_found"}',
+  forbidden = '{"error":"forbidden"}',
+}
 
-_SikuInternal.log = _SikuInternal.log or {}
+local internal <const> = _SikuInternal.log
+local settings <const> = internal.settings
 
-local service <const> = _SikuInternal.log
-local config <const> = Siku.config.log
 local pulls = 0
 local lastPullAt = nil
 
@@ -20,7 +24,7 @@ local function token()
     return value
   end
 
-  return type(config.token) == 'string' and config.token or ''
+  return settings.token
 end
 
 local function isLoopback(address)
@@ -28,9 +32,7 @@ local function isLoopback(address)
     return false
   end
 
-  local host = address:match('^%[(.-)%]:%d+$') or address:match('^(.-):%d+$') or address
-
-  host = host:lower()
+  local host = (address:match('^%[(.-)%]:%d+$') or address:match('^(.-):%d+$') or address):lower()
 
   if host:sub(1, 7) == '::ffff:' then
     host = host:sub(8)
@@ -57,12 +59,10 @@ local function query(path)
   local params <const> = {}
   local raw <const> = path:match('%?(.*)$')
 
-  if not raw then
-    return params
-  end
-
-  for key, value in raw:gmatch('([^&=]+)=([^&]*)') do
-    params[key] = value
+  if raw then
+    for key, value in raw:gmatch('([^&=]+)=([^&]*)') do
+      params[key] = value
+    end
   end
 
   return params
@@ -74,38 +74,25 @@ local function reply(res, status, body)
 end
 
 local function health()
-  local state <const> = service.state()
+  local state <const> = internal.state()
 
-  return json.encode({
-    v = VERSION,
-    boot = state.boot,
-    seq = state.seq,
-    buffered = state.buffered,
-    bytes = state.bytes,
-    dropped = state.dropped,
-    received = state.received,
-    uptimeMs = state.uptimeMs,
-    pulls = pulls,
-    lastPullAt = lastPullAt,
-  })
+  state.v = VERSION
+  state.pulls = pulls
+  state.lastPullAt = lastPullAt
+
+  return json.encode(state)
 end
 
 local function pull(params)
   local cursor <const> = tonumber(params.cursor)
-  local limit = math.floor(tonumber(params.limit) or DEFAULT_LIMIT)
-
-  if limit < 1 then
-    limit = 1
-  elseif limit > MAX_LIMIT then
-    limit = MAX_LIMIT
-  end
+  local limit <const> = math.min(math.max(math.floor(tonumber(params.limit) or DEFAULT_LIMIT), 1), MAX_LIMIT)
 
   if cursor then
-    service.ack(cursor)
+    internal.ack(cursor)
   end
 
-  local slice <const>, nextSeq <const>, pending <const> = service.pull(cursor, limit)
-  local state <const> = service.state()
+  local slice <const>, nextSeq <const>, pending <const> = internal.pull(cursor, limit)
+  local state <const> = internal.state()
 
   pulls = pulls + 1
   lastPullAt = os.time()
@@ -123,17 +110,17 @@ end
 
 SetHttpHandler(function(req, res)
   if req.method ~= 'GET' then
-    return reply(res, 405, '{"error":"method_not_allowed"}')
+    return reply(res, 405, ERRORS.method)
   end
 
   local path <const> = req.path:match('^[^?]*')
 
   if path ~= PULL_PATH and path ~= HEALTH_PATH then
-    return reply(res, 404, '{"error":"not_found"}')
+    return reply(res, 404, ERRORS.path)
   end
 
   if not authorized(req) then
-    return reply(res, 403, '{"error":"forbidden"}')
+    return reply(res, 403, ERRORS.forbidden)
   end
 
   if path == HEALTH_PATH then

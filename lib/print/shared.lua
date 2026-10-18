@@ -94,21 +94,18 @@ local function resolveSource()
   return GetInvokingResource() or Siku.name
 end
 
---- Write a line to the console when its level passes the active filter.
----@param level table The level descriptor holding severity, label and color.
----@param ... any The values to log.
+--- Record a warning or an error as a structured event, when enabled.
+---@param level table The level descriptor.
+---@param message string The formatted message.
 local function record(level, message)
-  if not level.event or not EMIT_EVENTS then
-    return
-  end
-
-  local log <const> = Siku.log
-
-  if log then
-    log.emit(level.event, { level = level.name, message = message })
+  if level.event and EMIT_EVENTS then
+    Siku.log.emit(level.event, { level = level.name, message = message })
   end
 end
 
+--- Write a line to the console when its level passes the active filter.
+---@param level table The level descriptor holding severity, label and color.
+---@param ... any The values to log.
 local function write(level, ...)
   local message <const> = formatArgs(...)
 
