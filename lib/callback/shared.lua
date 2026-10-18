@@ -9,6 +9,16 @@ local EVENTS <const> = {
 }
 
 local TIMEOUT <const> = math.max(tonumber(Siku.config.callback.timeout) or DEFAULT_TIMEOUT, MIN_TIMEOUT)
+local TRACE_CALLBACKS <const> = Siku.config.log.enabled ~= false and Siku.config.log.tracing ~= nil and Siku.config.log.tracing.enabled ~= false and Siku.config.log.tracing.callbacks ~= false
+local SPAN_PREFIX <const> = 'callback '
+
+local function traced(name, kind, remote, fn, ...)
+  if not TRACE_CALLBACKS or (kind == 'server' and not remote and not rawget(Siku, 'log')) then
+    return fn(...)
+  end
+
+  return Siku.log.span(SPAN_PREFIX .. name, fn, { kind = kind, remote = remote, auto = true, attributes = { ['callback.name'] = name } }, ...)
+end
 
 --- Read the length of a packed table, tolerating one built by a remote peer.
 ---@param packed table The packed table to measure.
@@ -100,7 +110,7 @@ local function createChannel(sendRequest, sendResponse, forwardTarget)
   ---@param name string The callback name.
   ---@param ... any The arguments forwarded to the handler.
   ---@return boolean ok, any ... Whether the call succeeded, then the handler results or the failure reason.
-  function channel.request(target, name, ...)
+  local function ask(target, name, ...)
     nextRequestId = nextRequestId + 1
 
     local requestId <const> = nextRequestId
@@ -114,12 +124,22 @@ local function createChannel(sendRequest, sendResponse, forwardTarget)
       end),
     }
 
-    sendRequest(target, requestId, name, ...)
+    local context <const> = rawget(Siku, 'log') and Siku.log.context() or nil
+
+    sendRequest(target, requestId, name, context, ...)
 
     local outcome <const> = Citizen.Await(answer)
     local results <const> = outcome.results
 
+    if not outcome.ok and rawget(Siku, 'log') then
+      Siku.log.setAttribute('callback.error', tostring(results[1]))
+    end
+
     return outcome.ok, table.unpack(results, 1, packedCount(results))
+  end
+
+  function channel.request(target, name, ...)
+    return traced(name, 'client', nil, ask, target, name, ...)
   end
 
   --- Answer an inbound request coming from the other side.
@@ -128,7 +148,7 @@ local function createChannel(sendRequest, sendResponse, forwardTarget)
   ---@param requestId number The request identifier to echo back.
   ---@param name string The callback name being asked for.
   ---@param ... any The arguments sent by the caller.
-  function channel.onRequest(target, caller, requestId, name, ...)
+  function channel.onRequest(target, caller, requestId, name, context, ...)
     local handler <const> = handlers[name]
 
     if not handler then
@@ -136,7 +156,14 @@ local function createChannel(sendRequest, sendResponse, forwardTarget)
       return
     end
 
-    local outcome <const> = forwardTarget and table.pack(pcall(handler, target, ...)) or table.pack(pcall(handler, ...))
+    local remote <const> = type(context) == 'table' and type(context.trace) == 'string' and context or nil
+    local outcome <const> = table.pack(pcall(traced, name, 'server', remote, function(...)
+      if forwardTarget then
+        return handler(target, ...)
+      end
+
+      return handler(...)
+    end, ...))
 
     if not outcome[1] then
       local reason <const> = tostring(outcome[2])

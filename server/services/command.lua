@@ -6,6 +6,7 @@ local COMMAND_NAME_PATTERN <const> = '^[%w_%-]+$'
 local DURATION_PATTERN <const> = '^(%d+)([smhd]?)$'
 local CHAT_RESOURCE <const> = 'siku_chat'
 local ERROR_NOTIFICATION_DURATION <const> = 5000
+local TRACE_COMMANDS <const> = Siku.config.log.enabled ~= false and Siku.config.log.tracing ~= nil and Siku.config.log.tracing.enabled ~= false and Siku.config.log.tracing.commands ~= false
 
 local DURATION_UNITS <const> = {
   [''] = 1,
@@ -280,6 +281,24 @@ local function parseArguments(def, src, rawArgs)
   return parsed, nil
 end
 
+---Runs a command handler inside a span when command tracing is enabled.
+---@param def table The command definition.
+---@param src number The caller.
+---@param args table The parsed arguments.
+---@param rawArgs table The raw arguments.
+---@return any ... Whatever the handler returned.
+local function runCommand(def, src, args, rawArgs)
+  if not TRACE_COMMANDS then
+    return def.callback(src, args, rawArgs)
+  end
+
+  return Siku.log.span('command /' .. def.name, def.callback, {
+    kind = 'server',
+    auto = true,
+    attributes = { ['command.name'] = def.name, ['command.resource'] = def.resource, ['command.source'] = src },
+  }, src, args, rawArgs)
+end
+
 ---Runs a command invocation through console, permission, cooldown and argument checks.
 ---@param def table The command definition.
 ---@param src number The caller's server id, or 0 for the console.
@@ -316,10 +335,20 @@ local function executeCommand(def, src, rawArgs)
     return
   end
 
-  local ok <const>, err = pcall(def.callback, src, args, rawArgs)
+  local ok <const>, err = pcall(runCommand, def, src, args, rawArgs)
 
   if not ok then
     Siku.print.error(('/%s (from %q) threw an error: %s'):format(def.name, def.resource, tostring(err)))
+  end
+
+  if def.permission then
+    Siku.log.audit('command.executed', {
+      source = src ~= CONSOLE_SOURCE and src or nil,
+      outcome = ok and 'success' or 'failure',
+      message = ('/%s %s'):format(def.name, table.concat(rawArgs, ' ')),
+      data = { command = def.name, resource = def.resource, arguments = rawArgs, console = src == CONSOLE_SOURCE },
+      entities = src ~= CONSOLE_SOURCE and { { type = 'player', id = src, role = 'actor' } } or nil,
+    })
   end
 end
 

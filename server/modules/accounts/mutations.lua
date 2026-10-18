@@ -241,12 +241,28 @@ function Siku.accounts.apply(mutations, context)
 
   internal.unlock(ids)
 
+  local entities <const> = {}
+  local moves <const> = {}
+
   for index = 1, #normalized do
     local mutation <const> = normalized[index]
 
     internal.emit(EVENT_BALANCE_CHANGED, mutation.id, mutation.entry.balance, mutation.delta, batch, normalizedContext.reason, normalizedContext.performedBy)
     internal.pushWatchers(mutation.entry)
+
+    entities[#entities + 1] = { type = 'account', id = mutation.id, role = mutation.delta < 0 and 'source' or 'destination' }
+    moves[#moves + 1] = { account = mutation.id, delta = mutation.delta, balance = mutation.entry.balance }
   end
+
+  if normalizedContext.performedBy then
+    entities[#entities + 1] = { type = 'character', id = normalizedContext.performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('accounts.mutation', {
+    outcome = 'success',
+    entities = entities,
+    data = { batch = batch, reason = normalizedContext.reason, resource = resource, mutations = moves },
+  })
 
   return true, nil, { batch = batch, balances = balances }
 end
