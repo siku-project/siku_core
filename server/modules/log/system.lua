@@ -27,6 +27,30 @@ local function playerEntity(sessionId, name)
   return { type = 'player', id = sessionId, role = 'actor', label = name }
 end
 
+local function population(sessionId, present)
+  local players <const> = GetPlayers()
+  local key <const> = tostring(sessionId)
+  local online = #players
+  local listed = false
+
+  for i = 1, #players do
+    if players[i] == key then
+      listed = true
+      break
+    end
+  end
+
+  if present and not listed then
+    online = online + 1
+  elseif not present and listed then
+    online = online - 1
+  end
+
+  local capacity <const> = GetConvarInt('sv_maxclients', 0)
+
+  return online, capacity > 0 and capacity or nil
+end
+
 local function rememberedEntities(session, sessionId)
   local out <const> = {}
 
@@ -84,13 +108,15 @@ AddEventHandler('playerJoining', function(oldId)
   local sessionId <const> = source
   local name <const> = GetPlayerName(tostring(sessionId)) or UNKNOWN_NAME
 
+  local online <const>, capacity <const> = population(sessionId, true)
+
   sessions[sessionId] = { joinedAt = Siku.log.now(), name = name }
 
   Siku.log.system('player.joined', {
     message = ('%s joined'):format(name),
     source = sessionId,
     entities = { playerEntity(sessionId, name) },
-    data = { identifiers = identifiers(sessionId), temporaryId = tonumber(oldId) },
+    data = { identifiers = identifiers(sessionId), temporaryId = tonumber(oldId), online = online, capacity = capacity },
   })
 end)
 
@@ -127,6 +153,7 @@ AddEventHandler('playerDropped', function(reason, resourceName, dropReason)
   local sessionId <const> = source
   local session <const> = sessions[sessionId]
   local name <const> = GetPlayerName(tostring(sessionId)) or (session and session.name) or UNKNOWN_NAME
+  local online <const>, capacity <const> = population(sessionId, false)
 
   sessions[sessionId] = nil
 
@@ -140,6 +167,8 @@ AddEventHandler('playerDropped', function(reason, resourceName, dropReason)
       byResource = resourceName,
       sessionSeconds = session and math.floor((Siku.log.now() - session.joinedAt) / 1000) or nil,
       identifiers = identifiers(sessionId),
+      online = online,
+      capacity = capacity,
     },
   })
 end)

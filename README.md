@@ -480,7 +480,7 @@ There is no instruction-level hook in FXServer's Lua sandbox: a trace shows the 
 |---|---|---|
 | `core.ready`, `core.stopping` | system | The core finished initialising, or stops. |
 | `resource.started`, `resource.stopped`, `resource.start_failed` | system | Any resource of the server. |
-| `player.joined`, `player.dropped` | system | A session starts (identifiers listed in `config/log.lua`) or ends (reason, cause, duration, character). |
+| `player.joined`, `player.dropped` | system | A session starts (identifiers listed in `config/log.lua`) or ends (reason, cause, duration, character). Both carry `online`, the players connected once the event is applied, and `capacity` (`sv_maxclients`), so the population history is exact. |
 | `character.activated` | system | A character enters play. |
 | `script.error`, `script.warning`, `script.load_error` | system | Lua errors with file, line and stack, warnings, scripts that fail to load, read from the console. |
 | `script.warning`, `script.error` | script | `Siku.print.warn` and `Siku.print.error`. |
