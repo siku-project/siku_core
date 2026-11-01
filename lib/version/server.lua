@@ -162,7 +162,7 @@ local function checkRelease(repository)
       end,
       'GET',
       '',
-      { ['Accept'] = 'application/vnd.github+json' }
+      { ['Accept'] = 'application/vnd.github+json', ['User-Agent'] = ('%s/%s'):format(resource, currentVersion) }
     )
   end)
 
