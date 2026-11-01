@@ -397,5 +397,5 @@ function _SikuInternal.InitAccounts()
 
   state.ready = true
 
-  Siku.print.success(('Accounts engine initialized with %d account(s)'):format(count))
+  Siku.log.info('accounts.ready', ('Accounts engine initialized with %d account(s)'):format(count), { accounts = count })
 end

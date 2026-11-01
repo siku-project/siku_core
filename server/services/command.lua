@@ -91,25 +91,6 @@ local function dropSuggestion(name)
   end)
 end
 
----Reports a command error to the caller — notification for players, console log otherwise.
----@param src number The caller's server id, or 0 for the console.
----@param name string The command name.
----@param description string The error description.
----@return nil
-local function reportError(src, name, description)
-  if src == CONSOLE_SOURCE then
-    Siku.print.warn(('/%s: %s'):format(name, description))
-    return
-  end
-
-  Siku.notification.show(src, {
-    type = 'error',
-    title = ('/%s'):format(name),
-    description = description,
-    duration = ERROR_NOTIFICATION_DURATION,
-  })
-end
-
 ---Checks the numeric bounds declared on an argument definition.
 ---@param value number The parsed value.
 ---@param def table The argument definition.
@@ -306,13 +287,47 @@ end
 ---@return nil
 local function executeCommand(def, src, rawArgs)
   if src == CONSOLE_SOURCE and not def.allowConsole then
-    Siku.print.warn(('/%s cannot be executed from the console'):format(def.name))
+    Siku.print.warn(('/%s: cannot be executed from the console'):format(def.name))
+    Siku.log.warn('command.rejected', ('/%s %s: cannot be executed from the console'):format(def.name, table.concat(rawArgs, ' ')), {
+      command = def.name,
+      resource = def.resource,
+      arguments = rawArgs,
+      reason = 'console',
+      permission = def.permission,
+      console = true,
+    }, { outcome = 'denied' })
     return
   end
 
   if def.permission and src ~= CONSOLE_SOURCE and not hasCommandPermission(src, def.permission) then
-    Siku.print.warn(('Player %d attempted /%s without permission %q'):format(src, def.name, def.permission))
-    reportError(src, def.name, 'you are not allowed to use this command')
+    local entities <const> = { { type = 'player', id = src, role = 'actor' } }
+
+    for index = 1, #def.arguments do
+      local argument <const> = def.arguments[index]
+
+      if argument.type == 'player' and rawArgs[index] then
+        local ok <const>, target <const> = pcall(typeParsers.player, rawArgs[index], argument, src)
+
+        if ok and target and target ~= src then
+          entities[#entities + 1] = { type = 'player', id = target, role = 'target' }
+        end
+      end
+    end
+
+    Siku.log.warn('command.rejected', ('Tried /%s %s without permission %s'):format(def.name, table.concat(rawArgs, ' '), def.permission), {
+      command = def.name,
+      resource = def.resource,
+      arguments = rawArgs,
+      reason = 'permission',
+      permission = def.permission,
+      console = false,
+    }, { outcome = 'denied', source = src, entities = entities })
+    Siku.notification.show(src, {
+      type = 'error',
+      title = ('/%s'):format(def.name),
+      description = 'you are not allowed to use this command',
+      duration = ERROR_NOTIFICATION_DURATION,
+    })
     return
   end
 
@@ -331,14 +346,67 @@ local function executeCommand(def, src, rawArgs)
   local args <const>, argError = parseArguments(def, src, rawArgs)
 
   if not args then
-    reportError(src, def.name, argError)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    for index = 1, #def.arguments do
+      local argument <const> = def.arguments[index]
+
+      if argument.type == 'player' and rawArgs[index] then
+        local ok <const>, target <const> = pcall(typeParsers.player, rawArgs[index], argument, src)
+
+        if ok and target and target ~= src then
+          entities[#entities + 1] = { type = 'player', id = target, role = 'target' }
+        end
+      end
+    end
+
+    Siku.log.warn('command.rejected', ('/%s %s: %s'):format(def.name, table.concat(rawArgs, ' '), argError), {
+      command = def.name,
+      resource = def.resource,
+      arguments = rawArgs,
+      reason = 'arguments',
+      permission = def.permission,
+      console = src == CONSOLE_SOURCE,
+    }, {
+      outcome = 'denied',
+      source = src ~= CONSOLE_SOURCE and src or nil,
+      entities = #entities > 0 and entities or nil,
+    })
+
+    if src == CONSOLE_SOURCE then
+      Siku.print.warn(('/%s: %s'):format(def.name, argError))
+      return
+    end
+
+    Siku.notification.show(src, {
+      type = 'error',
+      title = ('/%s'):format(def.name),
+      description = argError,
+      duration = ERROR_NOTIFICATION_DURATION,
+    })
     return
   end
 
   local ok <const>, err = pcall(runCommand, def, src, args, rawArgs)
 
   if not ok then
-    Siku.print.error(('/%s (from %q) threw an error: %s'):format(def.name, def.resource, tostring(err)))
+    Siku.log.error('command.failed', ('/%s %s threw an error: %s'):format(def.name, table.concat(rawArgs, ' '), tostring(err)), {
+      command = def.name,
+      resource = def.resource,
+      arguments = rawArgs,
+      error = tostring(err),
+      console = src == CONSOLE_SOURCE,
+    }, {
+      outcome = 'failure',
+      source = src ~= CONSOLE_SOURCE and src or nil,
+      entities = src ~= CONSOLE_SOURCE
+        and { { type = 'player', id = src, role = 'actor' }, { type = 'resource', id = def.resource, role = 'subject', label = def.resource } }
+        or { { type = 'resource', id = def.resource, role = 'subject', label = def.resource } },
+    })
   end
 
   if def.permission then
@@ -415,13 +483,18 @@ end
 ---@param primary string The primary command name.
 ---@param arguments any The raw argument definitions.
 ---@return table[]? normalized The normalized definitions, or nil on error.
-local function normalizeArguments(primary, arguments)
+local function normalizeArguments(primary, arguments, resource)
   if arguments == nil then
     return {}
   end
 
   if type(arguments) ~= 'table' then
-    Siku.print.error(('command.register %q: arguments must be a table'):format(primary))
+    Siku.log.error('command.definition_invalid', ('command.register %q: arguments must be a table'):format(primary), {
+      command = primary,
+      resource = resource,
+      reason = 'arguments_not_table',
+      got = type(arguments),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return nil
   end
 
@@ -431,19 +504,37 @@ local function normalizeArguments(primary, arguments)
     local argument <const> = arguments[index]
 
     if type(argument) ~= 'table' or type(argument.name) ~= 'string' or #argument.name == 0 then
-      Siku.print.error(('command.register %q: argument #%d must declare a name'):format(primary, index))
+      Siku.log.error('command.definition_invalid', ('command.register %q: argument #%d must declare a name'):format(primary, index), {
+        command = primary,
+        resource = resource,
+        reason = 'argument_unnamed',
+        index = index,
+      }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
       return nil
     end
 
     local argType <const> = argument.type or 'string'
 
     if not typeParsers[argType] then
-      Siku.print.error(('command.register %q: unknown argument type %q'):format(primary, tostring(argType)))
+      Siku.log.error('command.definition_invalid', ('command.register %q: unknown argument type %q'):format(primary, tostring(argType)), {
+        command = primary,
+        resource = resource,
+        reason = 'argument_type_unknown',
+        index = index,
+        argument = argument.name,
+        argumentType = tostring(argType),
+      }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
       return nil
     end
 
     if argType == 'merge' and index ~= #arguments then
-      Siku.print.error(('command.register %q: a merge argument must be last'):format(primary))
+      Siku.log.error('command.definition_invalid', ('command.register %q: a merge argument must be last'):format(primary), {
+        command = primary,
+        resource = resource,
+        reason = 'merge_not_last',
+        index = index,
+        argument = argument.name,
+      }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
       return nil
     end
 
@@ -473,32 +564,52 @@ end
 ---@return boolean registered
 function Siku.command.register(name, callback, options)
   local names <const> = type(name) == 'string' and { name } or name
+  local resource <const> = GetInvokingResource() or GetCurrentResourceName()
 
   if type(names) ~= 'table' or #names == 0 then
-    Siku.print.error('command.register:name must be a string or a list of names')
+    Siku.log.error('command.definition_invalid', 'command.register: name must be a string or a list of names', {
+      resource = resource,
+      reason = 'name_not_string',
+      got = type(name),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   for index = 1, #names do
     if type(names[index]) ~= 'string' or not names[index]:match(COMMAND_NAME_PATTERN) then
-      Siku.print.error(('command.register:invalid name %q'):format(tostring(names[index])))
+      Siku.log.error('command.definition_invalid', ('command.register: invalid name %q'):format(tostring(names[index])), {
+        command = tostring(names[index]),
+        resource = resource,
+        reason = 'name_invalid',
+        index = index,
+      }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
       return false
     end
   end
 
   if not Siku.isCallable(callback) then
-    Siku.print.error(('command.register %q: callback must be a function'):format(names[1]))
+    Siku.log.error('command.definition_invalid', ('command.register %q: callback must be a function'):format(names[1]), {
+      command = names[1],
+      resource = resource,
+      reason = 'callback_not_function',
+      got = type(callback),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   if options ~= nil and type(options) ~= 'table' then
-    Siku.print.error(('command.register %q: options must be a table'):format(names[1]))
+    Siku.log.error('command.definition_invalid', ('command.register %q: options must be a table'):format(names[1]), {
+      command = names[1],
+      resource = resource,
+      reason = 'options_not_table',
+      got = type(options),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   local primary <const> = names[1]
   local opts <const> = options or {}
-  local arguments <const> = normalizeArguments(primary, opts.arguments)
+  local arguments <const> = normalizeArguments(primary, opts.arguments, resource)
 
   if not arguments then
     return false
@@ -517,7 +628,7 @@ function Siku.command.register(name, callback, options)
     arguments = arguments,
     usage = buildUsage(primary, arguments),
     suggestion = buildSuggestion(primary, description, arguments),
-    resource = GetInvokingResource() or GetCurrentResourceName(),
+    resource = resource,
   }
 
   for index = 2, #names do
@@ -529,6 +640,12 @@ function Siku.command.register(name, callback, options)
 
     if existing then
       Siku.print.warn(('/%s from %q overrides the definition from %q'):format(names[index], def.resource, existing.resource))
+      Siku.log.warn('command.overridden', ('/%s from %q overrides the definition from %q'):format(names[index], def.resource, existing.resource), {
+        command = names[index],
+        resource = def.resource,
+        previous = existing.resource,
+        reason = 'command',
+      }, { entities = { { type = 'resource', id = def.resource, role = 'subject', label = def.resource } } })
     end
 
     commands[names[index]] = def
@@ -610,18 +727,34 @@ end
 ---@param parser function The parser function.
 ---@return boolean registered
 function Siku.command.registerType(typeName, parser)
+  local resource <const> = GetInvokingResource() or GetCurrentResourceName()
+
   if type(typeName) ~= 'string' or #typeName == 0 then
-    Siku.print.error('command.registerType:typeName must be a non-empty string')
+    Siku.log.error('command.definition_invalid', 'command.registerType: typeName must be a non-empty string', {
+      resource = resource,
+      reason = 'type_name_invalid',
+      got = type(typeName),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   if not Siku.isCallable(parser) then
-    Siku.print.error(('command.registerType %q: parser must be a function'):format(typeName))
+    Siku.log.error('command.definition_invalid', ('command.registerType %q: parser must be a function'):format(typeName), {
+      resource = resource,
+      reason = 'type_parser_not_function',
+      argumentType = typeName,
+      got = type(parser),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   if typeParsers[typeName] then
-    Siku.print.warn(('Command type %q overridden'):format(typeName))
+    Siku.print.warn(('Command type %q overridden by %q'):format(typeName, resource))
+    Siku.log.warn('command.overridden', ('Command type %q overridden by %q'):format(typeName, resource), {
+      argumentType = typeName,
+      resource = resource,
+      reason = 'type',
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
   end
 
   typeParsers[typeName] = parser

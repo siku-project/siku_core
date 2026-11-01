@@ -42,7 +42,13 @@ local function handlePlayerConnecting(name, _, deferrals)
   local occupancy <const> = GetNumPlayerIndices() + pendingCount
 
   if occupancy >= maxClients then
-    Siku.print.warn(('Connection refused for %s: server full (%d/%d)'):format(name, occupancy, maxClients))
+    Siku.log.warn('connection.refused', ('Connection refused for %s: server full (%d/%d)'):format(name, occupancy, maxClients), {
+      name = name,
+      reason = 'server_full',
+      occupancy = occupancy,
+      capacity = maxClients,
+      identifiers = Siku.player.getIdentifiers(tempId),
+    }, { outcome = 'denied', entities = { { type = 'player', id = tempId, role = 'subject', label = name } } })
     deferrals.defer()
     Wait(0)
     deferrals.done(T('connection_server_full', maxClients))

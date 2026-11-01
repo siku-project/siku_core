@@ -29,7 +29,9 @@ local function loadEntries(characterId)
         onDuty = false,
       }
     else
-      Siku.print.warn(('Character %d holds a membership of unknown job #%d'):format(characterId, row.job_id))
+      Siku.log.warn('jobs.membership_orphaned', ('Character %d holds a membership of unknown job #%d'):format(characterId, row.job_id), {
+        jobId = row.job_id,
+      }, { entities = { { type = 'character', id = characterId, role = 'subject' } } })
     end
   end
 
@@ -235,7 +237,21 @@ function Siku.jobs.hire(characterId, jobName, gradeName, context)
     internal.push(characterId)
   end
 
-  internal.audit('hired', job.id, characterId, performerOf(context), ('grade=%s'):format(grade.name))
+  local performedBy <const> = performerOf(context)
+  local entities <const> = {
+    { type = 'job', id = job.name, role = 'subject', label = job.label },
+    { type = 'character', id = characterId, role = 'target' },
+  }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('jobs.hired', {
+    message = ('Character %d hired in %s as %s'):format(characterId, job.name, grade.name),
+    entities = entities,
+    data = { job = job.name, grade = grade.name, rank = grade.rank },
+  })
   internal.emit(EVENT_MEMBER_ADDED, characterId, job.name, grade.name, state.sessions[characterId])
 
   return true, nil
@@ -281,7 +297,21 @@ function Siku.jobs.fire(characterId, jobName, context)
     internal.push(characterId)
   end
 
-  internal.audit('fired', job.id, characterId, performerOf(context), grade and ('grade=%s'):format(grade.name) or nil)
+  local performedBy <const> = performerOf(context)
+  local entities <const> = {
+    { type = 'job', id = job.name, role = 'subject', label = job.label },
+    { type = 'character', id = characterId, role = 'target' },
+  }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('jobs.fired', {
+    message = ('Character %d fired from %s%s'):format(characterId, job.name, grade and (' as ' .. grade.name) or ''),
+    entities = entities,
+    data = { job = job.name, grade = grade and grade.name or nil, rank = grade and grade.rank or nil },
+  })
   internal.emit(EVENT_MEMBER_REMOVED, characterId, job.name, state.sessions[characterId])
 
   return true, nil
@@ -326,13 +356,22 @@ function Siku.jobs.setGrade(characterId, jobName, gradeName, context)
   end
 
   internal.applyGrade(characterId, job, entry, grade)
-  internal.audit(
-    'grade_changed',
-    job.id,
-    characterId,
-    performerOf(context),
-    ('from=%s to=%s'):format(previous and previous.name or '?', grade.name)
-  )
+
+  local performedBy <const> = performerOf(context)
+  local entities <const> = {
+    { type = 'job', id = job.name, role = 'subject', label = job.label },
+    { type = 'character', id = characterId, role = 'target' },
+  }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('jobs.grade_changed', {
+    message = ('Character %d moved from %s to %s in %s'):format(characterId, previous and previous.name or '?', grade.name, job.name),
+    entities = entities,
+    data = { job = job.name, from = previous and previous.name or nil, to = grade.name, rank = grade.rank, cause = 'set_grade' },
+  })
 
   return true, nil
 end

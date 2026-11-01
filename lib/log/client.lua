@@ -4,6 +4,9 @@ local DEFAULT_BATCH_BYTES <const> = 24576
 local DEFAULT_BATCH_RECORDS <const> = 50
 
 local settings <const> = internal.settings
+
+import('guard')
+
 local maxBytes <const> = tonumber(settings.client.maxBatchBytes) or DEFAULT_BATCH_BYTES
 local maxRecords <const> = tonumber(settings.client.maxBatchRecords) or DEFAULT_BATCH_RECORDS
 

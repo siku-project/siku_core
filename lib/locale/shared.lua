@@ -30,14 +30,23 @@ local function loadTranslations()
   local source <const> = LoadResourceFile(Siku.name, path)
 
   if not source then
-    Siku.print.warn(("No translation file found for language '%s'"):format(language))
+    Siku.log.warn('locale.missing', ("No translation file found for language '%s'"):format(language), {
+      resource = Siku.name,
+      language = language,
+      path = path,
+    }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
     return translations
   end
 
   local chunk <const>, err <const> = load(source, ('@@%s/%s'):format(Siku.name, path))
 
   if not chunk then
-    Siku.print.error(("Unable to compile the translation file for language '%s': %s"):format(language, err))
+    Siku.log.error('locale.invalid', ("Unable to compile the translation file for language '%s': %s"):format(language, err), {
+      resource = Siku.name,
+      language = language,
+      path = path,
+      error = tostring(err),
+    }, { file = path, entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
     return translations
   end
 

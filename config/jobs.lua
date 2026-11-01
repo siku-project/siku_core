@@ -16,8 +16,4 @@ JobsConfig = {
       maxJobs = 1,
     },
   },
-
-  --- Whether hires, dismissals, grade changes and definition edits are
-  --- written to `job_audit_log`.
-  audit = true,
 }

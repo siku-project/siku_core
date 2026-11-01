@@ -4,7 +4,6 @@ local state <const> = internal.state
 local STATE_VALID <const> = internal.STATE_VALID
 local EVENT_POINTS_CHANGED <const> = 'pointsChanged'
 local EVENT_POINTS_EXHAUSTED <const> = 'pointsExhausted'
-local AUDIT_POINTS_CHANGED <const> = 'points_changed'
 
 local function resolve(characterId, licenseName, context)
   local license <const> = internal.getLicense(licenseName)
@@ -58,7 +57,21 @@ local function write(characterId, license, entry, target, context)
   local sessionId <const> = state.sessions[characterId]
 
   internal.push(characterId)
-  internal.audit(AUDIT_POINTS_CHANGED, license.id, characterId, performedBy, ('from=%d to=%d reason=%s'):format(previous, points, reason or ''))
+
+  local entities <const> = {
+    { type = 'license', id = license.name, role = 'subject', label = license.label },
+    { type = 'character', id = characterId, role = 'target' },
+  }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('licenses.points_changed', {
+    message = ('Points of %s moved from %d to %d for character %d'):format(license.name, previous, points, characterId),
+    entities = entities,
+    data = { license = license.name, from = previous, to = points, delta = points - previous, max = license.maxPoints, reason = reason },
+  })
   internal.emit(EVENT_POINTS_CHANGED, characterId, license.name, points, points - previous, reason, performedBy, sessionId)
 
   if previous > 0 and points == 0 then

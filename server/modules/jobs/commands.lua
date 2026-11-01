@@ -20,18 +20,6 @@ local function tell(src, kind, message)
   })
 end
 
---- Reports a refusal to the caller, with the console kept informed.
----@param src number The caller's server id, or 0 for the console.
----@param key string The translation key.
----@vararg any The format arguments.
----@return nil
-local function refuse(src, key, ...)
-  local message <const> = T(key, ...)
-
-  Siku.print.warn(message)
-  tell(src, 'error', message)
-end
-
 --- Translates an engine reason into a line for the caller.
 ---@param reason string The reason the engine returned.
 ---@param jobName string The job the action aimed at.
@@ -41,20 +29,6 @@ local function explain(reason, jobName, gradeName)
   local key <const> = ('jobs_reason_%s'):format(reason)
 
   return T(key, jobName, gradeName or '')
-end
-
---- The character a session plays, or a refusal.
----@param src number The caller's server id.
----@param sessionId number The session looked at.
----@return number? characterId The character id, or nil after refusing.
-local function characterOf(src, sessionId)
-  local characterId <const> = Siku.cache.getCurrentCharacterId(sessionId)
-
-  if not characterId then
-    refuse(src, 'jobs_no_character', sessionId)
-  end
-
-  return characterId
 end
 
 --- The character acting, for the audit log.
@@ -77,14 +51,33 @@ local function describe(membership)
 end
 
 Siku.command.register('setjob', function(src, args)
-  local characterId <const> = characterOf(src, args.target)
+  local characterId <const> = Siku.cache.getCurrentCharacterId(args.target)
+  local jobName <const> = args.job
+  local gradeName <const> = args.grade
 
   if not characterId then
+    local message <const> = T('jobs_no_character', args.target)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    if args.target ~= src then
+      entities[#entities + 1] = { type = 'player', id = args.target, role = 'target' }
+    end
+
+    Siku.log.warn('jobs.command_refused', message, {
+      command = 'setjob',
+      reason = 'no_character',
+      job = jobName,
+      grade = gradeName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
-  local jobName <const> = args.job
-  local gradeName <const> = args.grade
   local context <const> = staffContext(src)
   local ok, reason
 
@@ -95,14 +88,27 @@ Siku.command.register('setjob', function(src, args)
   end
 
   if not ok then
-    refuse(src, 'jobs_refused', explain(reason, jobName, gradeName))
+    local message <const> = T('jobs_refused', explain(reason, jobName, gradeName))
+    local entities <const> = { { type = 'character', id = characterId, role = 'target', session = args.target } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('jobs.command_refused', message, {
+      command = 'setjob',
+      reason = reason,
+      job = jobName,
+      grade = gradeName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local membership <const> = Siku.jobs.getMembership(characterId, jobName)
   local message <const> = T('jobs_set', characterId, describe(membership))
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 
   if src ~= args.target then
@@ -121,24 +127,54 @@ end, {
 })
 
 Siku.command.register('unsetjob', function(src, args)
-  local characterId <const> = characterOf(src, args.target)
+  local characterId <const> = Siku.cache.getCurrentCharacterId(args.target)
+  local jobName <const> = args.job
 
   if not characterId then
+    local message <const> = T('jobs_no_character', args.target)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    if args.target ~= src then
+      entities[#entities + 1] = { type = 'player', id = args.target, role = 'target' }
+    end
+
+    Siku.log.warn('jobs.command_refused', message, {
+      command = 'unsetjob',
+      reason = 'no_character',
+      job = jobName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
-  local jobName <const> = args.job
   local membership <const> = Siku.jobs.getMembership(characterId, jobName)
   local ok <const>, reason <const> = Siku.jobs.fire(characterId, jobName, staffContext(src))
 
   if not ok then
-    refuse(src, 'jobs_refused', explain(reason, jobName))
+    local message <const> = T('jobs_refused', explain(reason, jobName))
+    local entities <const> = { { type = 'character', id = characterId, role = 'target', session = args.target } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('jobs.command_refused', message, {
+      command = 'unsetjob',
+      reason = reason,
+      job = jobName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local message <const> = T('jobs_unset', characterId, membership and membership.label or jobName)
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 
   if src ~= args.target then
@@ -159,13 +195,41 @@ Siku.command.register('jobs', function(src, args)
   local sessionId <const> = args.target or src
 
   if sessionId ~= src and not Siku.permissions.hasPermission(Siku.cache.getCurrentCharacterId(src) or 0, PERMISSION_MANAGE) then
-    refuse(src, 'jobs_not_allowed_others')
+    local message <const> = T('jobs_not_allowed_others')
+
+    Siku.log.warn('jobs.command_refused', message, {
+      command = 'jobs',
+      reason = 'not_allowed_others',
+      console = false,
+    }, {
+      outcome = 'denied',
+      source = src,
+      entities = { { type = 'player', id = src, role = 'actor' }, { type = 'player', id = sessionId, role = 'target' } },
+    })
+    tell(src, 'error', message)
     return
   end
 
-  local characterId <const> = characterOf(src, sessionId)
+  local characterId <const> = Siku.cache.getCurrentCharacterId(sessionId)
 
   if not characterId then
+    local message <const> = T('jobs_no_character', sessionId)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    if sessionId ~= src then
+      entities[#entities + 1] = { type = 'player', id = sessionId, role = 'target' }
+    end
+
+    Siku.log.warn('jobs.command_refused', message, {
+      command = 'jobs',
+      reason = 'no_character',
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
@@ -190,32 +254,5 @@ end, {
   description = "Affiche les jobs d'un personnage.",
   arguments = {
     { name = 'target', type = 'player', optional = true, help = 'Id du joueur, soi-même sans argument' },
-  },
-})
-
-Siku.command.register('duty', function(src, args)
-  local characterId <const> = characterOf(src, src)
-
-  if not characterId then
-    return
-  end
-
-  local jobName <const> = args.job
-  local onDuty <const> = not Siku.jobs.isOnDuty(characterId, jobName)
-  local ok <const>, reason <const> = Siku.jobs.setDuty(characterId, jobName, onDuty)
-
-  if not ok then
-    refuse(src, 'jobs_refused', explain(reason, jobName))
-    return
-  end
-
-  local membership <const> = Siku.jobs.getMembership(characterId, jobName)
-
-  tell(src, 'success', T(onDuty and 'jobs_duty_started' or 'jobs_duty_ended', membership.label))
-end, {
-  cooldown = COMMAND_COOLDOWN_MS,
-  description = 'Prend ou quitte le service dans un job légal.',
-  arguments = {
-    { name = 'job', type = 'string', help = 'Nom du job' },
   },
 })

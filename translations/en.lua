@@ -31,8 +31,6 @@ return {
   jobs_employed = 'Employed',
   jobs_on_duty = 'on duty',
   jobs_off_duty = 'off duty',
-  jobs_duty_started = 'You are now on duty at %s.',
-  jobs_duty_ended = 'You are now off duty at %s.',
   jobs_reason_unknown_job = "Job '%s' does not exist.",
   jobs_reason_inactive_job = "Job '%s' is not running.",
   jobs_reason_unknown_grade = "Job '%s' has no grade '%s'.",

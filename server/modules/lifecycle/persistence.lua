@@ -4,7 +4,7 @@ Siku.timers.setInterval(AUTOSAVE_INTERVAL, function()
   local saved <const> = Siku.persistence.saveAll()
 
   if saved > 0 then
-    Siku.print.debug(('Autosave wrote %d player(s)'):format(saved))
+    Siku.log.debug('lifecycle.autosaved', ('Autosave wrote %d player(s)'):format(saved), { players = saved })
   end
 end)
 
@@ -16,6 +16,6 @@ AddEventHandler('onResourceStop', function(resource)
   local saved <const> = Siku.persistence.saveAll()
 
   if saved > 0 then
-    Siku.print.info(T('persistence_shutdown_saved', saved))
+    Siku.log.info('lifecycle.shutdown_saved', T('persistence_shutdown_saved', saved), { players = saved })
   end
 end)

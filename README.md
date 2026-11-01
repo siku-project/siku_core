@@ -86,7 +86,7 @@ end
 | `math` | shared | Relative coords, number/currency formatting, lerps and interpolators, plus a seeded PRNG: weighted choice, shuffle, UUID v4/v7. |
 | `notification` | both | Guarded proxy to [`siku_notification`](https://github.com/siku-project/siku_notification). |
 | `player` | both | Closest / nearby players; identifiers on the server. |
-| `print` | shared | Leveled color logger (`error` → `debug`, `throw`), filtered by the `siku:logLevel` convar, cycle-safe serialization; `warn` and `error` also record a `script.warning` / `script.error` event. |
+| `print` | shared | Leveled color console logger (`error` → `debug`, `throw`), filtered by the `siku:logLevel` convar, cycle-safe serialization. Console only: nothing it writes reaches the Control Center. |
 | `progress` | shared | Guarded facade over [`siku_progress`](https://github.com/siku-project/siku_progress): every family, every control. |
 | `raycast` | client | Shape tests from coordinates, from the camera or along an entity's forward vector. |
 | `spatial` | both | Point-in-shape geometry, a cell-bucketed grid and a zone registry; client-side enter/exit tracking, proximity points, shared per-frame tick, debug markers. |
@@ -186,7 +186,7 @@ A `domain = 'illegal'` turns the declaration into an organisation without duty. 
 
 `Siku.jobs.get(name)` answers a handle whose reads are copies and whose writes go back to the core: `getDefinition`, `getGrades`, `getMembers`, `getOnlineMembers`, `count`, `hasMember`, `getMembership`, `hasPermission(characterId, permission)`, `isOnDuty`, `hire`, `fire`, `setGrade`, `setDuty`, and the definition edits a patron menu needs: `setLabel`, `createGrade`, `updateGrade`, `deleteGrade` (members move to the grade just below), `declarePermission`, `removePermission`, `grantPermission`, `revokePermission`. Every function also exists flat on `Siku.jobs` with the job name first.
 
-A membership mutation takes a context `{ performedBy, enforceHierarchy }`. When the actor is a member of the job, the engine asks for a rank above the one touched: nobody hires, promotes or dismisses at or above their own grade. Staff and code acting from outside the job, or a context with `enforceHierarchy = false`, go through. Whether the actor may act at all is the job's rule, checked with its own permissions before calling. Every hire, dismissal, grade change and definition edit lands in `job_audit_log` with the actor.
+A membership mutation takes a context `{ performedBy, enforceHierarchy }`. When the actor is a member of the job, the engine asks for a rank above the one touched: nobody hires, promotes or dismisses at or above their own grade. Staff and code acting from outside the job, or a context with `enforceHierarchy = false`, go through. Whether the actor may act at all is the job's rule, checked with its own permissions before calling. Every hire, dismissal, grade change and definition edit is recorded as a `jobs.*` audit event with the job, the target and the actor.
 
 ### Following a job
 
@@ -213,7 +213,8 @@ Nothing goes through a state bag: a character receives its own memberships and n
 | `/setjob <player> <job> <grade>` | `jobs.manage` | Hires the character or moves its grade, by grade name. |
 | `/unsetjob <player> <job>` | `jobs.manage` | Removes the character from the job. |
 | `/jobs [player]` | own, `jobs.manage` for others | Lists the memberships. |
-| `/duty <job>` | member | Takes or leaves the duty of a legal job. |
+
+Taking or leaving duty is not a command: a job resource calls `Siku.jobs.setDuty(characterId, job, onDuty)` from its own action.
 
 ## Accounts
 
@@ -329,7 +330,7 @@ Siku.licenses.removePoints(characterId, 'drive_car', 3, { performedBy = officerI
 
 Points are optional per license. `addPoints`, `removePoints` and `setPoints` move a `valid` holding between 0 and `max`; a license without points refuses with `no_points`. When the balance reaches zero the core fires `pointsExhausted` and nothing else: suspending, revoking or ignoring is the consumer's decision.
 
-Every mutation takes a context `{ performedBy?, reason? }` and lands in `license_audit_log` when `LicensesConfig.audit` is on. Refusals come back as `false, reason`: `unknown_license`, `unknown_character`, `already_held`, `not_held`, `not_valid`, `not_suspended`, `revoked`, `expired`, `no_points`, `invalid_amount`, `invalid_date`, `invalid_options`, `invalid_metadata`, `invalid_context`, `unchanged`, `owned_elsewhere`, `not_ready`.
+Every mutation takes a context `{ performedBy?, reason? }` and is recorded as a `licenses.*` audit event with the license, the holder and the actor. Refusals come back as `false, reason`: `unknown_license`, `unknown_character`, `already_held`, `not_held`, `not_valid`, `not_suspended`, `revoked`, `expired`, `no_points`, `invalid_amount`, `invalid_date`, `invalid_options`, `invalid_metadata`, `invalid_context`, `unchanged`, `owned_elsewhere`, `not_ready`.
 
 Dates travel as `YYYY-MM-DD HH:MM:SS` strings and are also accepted as unix timestamps.
 
@@ -394,12 +395,12 @@ Nothing goes through a state bag: a character receives its own holdings and nobo
 ### Writing logs
 
 ```lua
-Siku.log.info('Cargo delivered', { route = 'docks', weight = 12.5 })
-Siku.log.warn('Low stock', { item = 'water' })
-Siku.log.error('Vehicle spawn failed', { model = 'adder' }, { outcome = 'failure' })
+Siku.log.info('cargo.delivered', 'Cargo delivered', { route = 'docks', weight = 12.5 })
+Siku.log.warn('stock.low', 'Low stock', { item = 'water' })
+Siku.log.error('vehicle.spawn_failed', 'Vehicle spawn failed', { model = 'adder' }, { outcome = 'failure' })
 ```
 
-`trace`, `debug`, `info`, `warn`, `error` and `fatal` take a message, an optional table of data and optional options. The level is the technical severity; the outcome (`success`, `failure`, `denied`, `cancelled` or any short word) is a separate fact.
+`trace`, `debug`, `info`, `warn`, `error` and `fatal` take an event name, a message, an optional table of data and optional options. The level is the technical severity; the outcome (`success`, `failure`, `denied`, `cancelled` or any short word) is a separate fact. The file and line of the call are recorded with it. `Siku.print` writes to the console and nowhere else: a warning or an error that matters is a named event.
 
 ### Structured events
 
@@ -460,6 +461,8 @@ The first active call records `vehicle.speeding.started`; later active calls onl
 
 The same API works in client scripts. Records are batched, sent to the server at most once per second and well under FXServer's network limits, then validated and rate limited per player. Client records are `declared`: the actor is resolved from the session by the server, the category is always `script`, and whatever the client claims about itself is kept as a claim.
 
+Client Lua errors are recorded without any code in the resource: the SDK guards every thread, timeout and event handler of the resource that loads it, and reads the errors FXServer reports for function references and NUI callbacks, so a crash reaches the Control Center as a `script.error` with its file, line, stack and context (`thread`, `event …`, `ref call`, `nui …`), attributed to the player. The error is rethrown untouched, F8 still shows it. Repeats from the same place inside `errors.dedupeMs` are counted, not recorded.
+
 ### Tracing
 
 ```lua
@@ -479,12 +482,13 @@ There is no instruction-level hook in FXServer's Lua sandbox: a trace shows the 
 | Event | Category | When |
 |---|---|---|
 | `core.ready`, `core.stopping` | system | The core finished initialising, or stops. |
-| `resource.started`, `resource.stopped`, `resource.start_failed` | system | Any resource of the server. |
-| `player.joined`, `player.dropped` | system | A session starts (identifiers listed in `config/log.lua`) or ends (reason, cause, duration, character). Both carry `online`, the players connected once the event is applied, and `capacity` (`sv_maxclients`), so the population history is exact. |
+| `resource.started`, `resource.stopped`, `resource.start_failed` | system | Any resource of the server: version at start, version and uptime at stop, `reason` (`failed` or `not_found`) when it cannot start. |
+| `player.joined`, `player.dropped` | system | A session starts (every identifier listed in `config/log.lua`, ping, whether it is a first visit, and for a known user its id, playtime, creation date, last visit and last character) or ends (reason, cause, duration, character). Both carry `online`, the players connected once the event is applied, and `capacity` (`sv_maxclients`), so the population history is exact. |
 | `character.activated` | system | A character enters play. |
-| `script.error`, `script.warning`, `script.load_error` | system | Lua errors with file, line and stack, warnings, scripts that fail to load, read from the console. |
-| `script.warning`, `script.error` | script | `Siku.print.warn` and `Siku.print.error`. |
+| `script.error`, `script.warning`, `script.load_error` | system | Server Lua errors with file, line and stack, FXServer warnings, scripts that fail to load (with the script, the phase and the Lua traceback), resources that cannot start or do not exist, read from the console. Repeats from the same place inside `errors.dedupeMs` are counted, not recorded. |
+| `script.error` | script | Client Lua errors caught by the SDK guard, with file, line, stack and context, attributed to the player. |
 | `log.dropped`, `log.client_dropped` | system | Records lost to a full buffer or to the client limits. |
+| `migration.*`, `permissions.*`, `jobs.*`, `licenses.*`, `accounts.*`, `lifecycle.*`, `connection.refused`, `command.*`, `bucket.*`, `cron.*`, `version.*`, `callback.*`, `timers.failed`, `spatial.failed`, `listener.failed`, `dependency.missing`, `progress.payload_invalid`, `locale.*`, `keybind.definition_invalid`, `math.ambiguous_separator`, `print.level_unknown` | script | Everything the core used to print: one name per domain and situation, the variant in `data.reason`, the resource, player, character or account involved as entities. The console only keeps the startup line, the migration steps, replies to commands typed in the console and command overrides. |
 | `permissions.*`, `jobs.*`, `licenses.*`, `accounts.mutation`, `command.executed` | audit | The core's own sensitive operations. |
 
 ### Collection
@@ -495,7 +499,7 @@ Measured in a Lua 5.4 harness with FiveM stubs (not FXServer): a structured even
 
 ## Database
 
-`config/migration.lua` declares the core schema, applied on startup: `users`, `characters`, `roles`, `permissions`, `role_permissions`, `character_roles`, `rbac_audit_log`, for the job engine `jobs`, `job_grades`, `job_permissions`, `job_grade_permissions`, `job_memberships` and `job_audit_log`, for the accounts engine `accounts`, `account_access` and `account_mutations`, and for the licenses engine `licenses`, `license_holdings` and `license_audit_log`, with indexes and cascading foreign keys.
+`config/migration.lua` declares the core schema, applied on startup: `users`, `characters`, `roles`, `permissions`, `role_permissions`, `character_roles`, for the job engine `jobs`, `job_grades`, `job_permissions`, `job_grade_permissions` and `job_memberships`, for the accounts engine `accounts`, `account_access` and `account_mutations`, and for the licenses engine `licenses` and `license_holdings`, with indexes and cascading foreign keys.
 
 ## Configuration
 
@@ -512,10 +516,9 @@ All options live in `config/` and are documented inline.
 | `config/migration.lua` | server | The core schema. |
 | `config/permissions.lua` | server | Role seeding and defaults. |
 | `config/connection.lua` | server | Hardcap enforcement. |
-| `config/jobs.lua` | server, consumers | Domain limits (`maxJobs`, `maxOnDuty`, `false` for none), auditing. |
+| `config/jobs.lua` | server, consumers | Domain limits (`maxJobs`, `maxOnDuty`, `false` for none). |
 | `config/accounts.lua` | server, consumers | Negative balance policy, mutation journal, batch and amount limits. |
-| `config/licenses.lua` | server, consumers | Auditing. |
-| `config/log.lua` | server, client, consumers | Buffers, client limits, identifiers kept in session events, tracing and sampling, data limits. |
+| `config/log.lua` | server, client, consumers | Buffers, client limits, identifiers kept in session events, tracing and sampling, data limits, error deduplication. |
 
 ## Conventions
 

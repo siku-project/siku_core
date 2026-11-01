@@ -46,7 +46,7 @@ LogConfig = {
     --- Identifiers written in player.joined and player.dropped events.
     --- Nothing else carries them: other events name the character and
     --- the user id, which stay resolvable afterwards.
-    identifiers = { 'license', 'discord' },
+    identifiers = { 'license', 'license2', 'steam', 'discord', 'fivem', 'xbl', 'live', 'ip' },
   },
 
   tracing = {
@@ -82,9 +82,11 @@ LogConfig = {
     data = 16 * 1024,
   },
 
-  print = {
-    --- Whether Siku.print.warn and Siku.print.error also record a
-    --- script.warning or script.error event.
-    emit = true,
+  errors = {
+    --- Window (ms) during which a script error or warning repeating from the
+    --- same place is counted instead of recorded again. Applies to the
+    --- server console capture and to the client guard; the next record
+    --- carries the number suppressed.
+    dedupeMs = 5000,
   },
 }

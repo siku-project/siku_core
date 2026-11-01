@@ -2,11 +2,11 @@
 function _SikuInternal.SeedPermissions()
   local existingRoles <const> = MySQL.query.await('SELECT * FROM roles')
   if #existingRoles > 0 then
-    Siku.print.info('Roles already seeded, skipping')
+    Siku.log.debug('permissions.seed_skipped', 'Roles already seeded, skipping', { roles = #existingRoles })
     return
   end
 
-  Siku.print.info('Seeding default roles and permissions')
+  Siku.log.info('permissions.seeding', 'Seeding default roles and permissions')
 
   local roleNameToId <const> = {}
 
@@ -66,5 +66,8 @@ function _SikuInternal.SeedPermissions()
   local permCount = 0
   for _ in pairs(permNameToId) do permCount = permCount + 1 end
 
-  Siku.print.success(('Seeded %d roles and %d permissions'):format(roleCount, permCount))
+  Siku.log.info('permissions.seeded', ('Seeded %d roles and %d permissions'):format(roleCount, permCount), {
+    roles = roleCount,
+    permissions = permCount,
+  })
 end

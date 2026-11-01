@@ -42,37 +42,62 @@ end
 ---@param population? boolean Whether to enable NPC population in this bucket. Default: false.
 ---@return number|nil bucketId The created bucket ID or nil on failure.
 function Siku.bucket.create(bucketId, lockdown, population)
+  local owner <const> = GetInvokingResource() or Siku.name
+
   if type(bucketId) ~= 'number' then
-    Siku.print.error(('Bucket ID must be a number, got %s'):format(type(bucketId)))
+    Siku.log.error('bucket.create_refused', ('Bucket ID must be a number, got %s'):format(type(bucketId)), {
+      resource = owner,
+      reason = 'id_not_number',
+      got = type(bucketId),
+    }, { entities = { { type = 'resource', id = owner, role = 'subject', label = owner } } })
     return nil
   end
 
   if bucketId == DEFAULT_BUCKET then
-    Siku.print.error('Cannot create bucket 0 — reserved as default world')
+    Siku.log.error('bucket.create_refused', 'Cannot create bucket 0, reserved as default world', {
+      resource = owner,
+      reason = 'id_reserved',
+      bucket = bucketId,
+    }, { entities = { { type = 'resource', id = owner, role = 'subject', label = owner } } })
     return nil
   end
 
   if activeBuckets[bucketId] then
-    Siku.print.error(('Bucket %d already exists (owner: %s)'):format(bucketId, activeBuckets[bucketId].owner))
+    Siku.log.error('bucket.create_refused', ('Bucket %d already exists (owner: %s)'):format(bucketId, activeBuckets[bucketId].owner), {
+      resource = owner,
+      reason = 'already_exists',
+      bucket = bucketId,
+      owner = activeBuckets[bucketId].owner,
+    }, { entities = { { type = 'resource', id = owner, role = 'subject', label = owner } } })
     return nil
   end
 
   local lock <const> = lockdown or 'strict'
 
   if not VALID_LOCKDOWN_MODES[lock] then
-    Siku.print.error(('Invalid lockdown mode: \'%s\' — expected strict, relaxed, or inactive'):format(lock))
+    Siku.log.error('bucket.create_refused', ('Invalid lockdown mode \'%s\', expected strict, relaxed or inactive'):format(lock), {
+      resource = owner,
+      reason = 'lockdown_invalid',
+      bucket = bucketId,
+      lockdown = tostring(lock),
+    }, { entities = { { type = 'resource', id = owner, role = 'subject', label = owner } } })
     return nil
   end
 
   local pop <const> = population ~= nil and population or false
-  local owner <const> = GetInvokingResource() or Siku.name
 
   SetRoutingBucketEntityLockdownMode(bucketId, lock)
   SetRoutingBucketPopulationEnabled(bucketId, pop)
 
   registerBucket(bucketId, owner, lock, pop)
 
-  Siku.print.info(('Bucket %d created (lockdown: %s, population: %s, owner: %s)'):format(bucketId, lock, tostring(pop), owner))
+  Siku.log.info('bucket.lifecycle', ('Bucket %d created (lockdown: %s, population: %s, owner: %s)'):format(bucketId, lock, tostring(pop), owner), {
+    action = 'created',
+    bucket = bucketId,
+    lockdown = lock,
+    population = pop,
+    resource = owner,
+  }, { entities = { { type = 'resource', id = owner, role = 'subject', label = owner } } })
 
   return bucketId
 end
@@ -101,7 +126,11 @@ function Siku.bucket.destroy(bucketId)
 
   activeBuckets[bucketId] = nil
 
-  Siku.print.info(('Bucket %d destroyed'):format(bucketId))
+  Siku.log.info('bucket.lifecycle', ('Bucket %d destroyed'):format(bucketId), {
+    action = 'destroyed',
+    bucket = bucketId,
+    resource = bucket.owner,
+  }, { entities = { { type = 'resource', id = bucket.owner, role = 'subject', label = bucket.owner } } })
 
   return true
 end
@@ -190,13 +219,29 @@ end
 ---@param sessionId number The player's server ID.
 ---@return number|nil bucketId The created bucket ID or nil on failure.
 function Siku.bucket.createPlayerInstance(sessionId)
+  local resource <const> = GetInvokingResource() or Siku.name
+
   if not GetPlayerName(tostring(sessionId)) then
-    Siku.print.error(('Cannot create instance — player %s does not exist'):format(tostring(sessionId)))
+    Siku.log.error('bucket.create_refused', ('Cannot create instance, player %s does not exist'):format(tostring(sessionId)), {
+      resource = resource,
+      reason = 'player_missing',
+      session = tostring(sessionId),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return nil
   end
 
   if Siku.bucket.isPlayerInstanced(sessionId) then
-    Siku.print.error(('Cannot create instance — player %d already in bucket %d'):format(sessionId, playerBuckets[sessionId]))
+    Siku.log.error('bucket.create_refused', ('Cannot create instance, player %d already in bucket %d'):format(sessionId, playerBuckets[sessionId]), {
+      resource = resource,
+      reason = 'player_already_instanced',
+      current = playerBuckets[sessionId],
+    }, {
+      source = sessionId,
+      entities = {
+        { type = 'player', id = sessionId, role = 'target' },
+        { type = 'resource', id = resource, role = 'subject', label = resource },
+      },
+    })
     return nil
   end
 

@@ -26,6 +26,7 @@ local settings <const> = {
   entities = tonumber(limits.entities) or 16,
   stack = tonumber(limits.stack) or 16384,
   client = config.client or {},
+  dedupeMs = tonumber((config.errors or {}).dedupeMs) or 5000,
 }
 
 local clock <const> = {

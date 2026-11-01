@@ -18,25 +18,8 @@ local function tell(src, kind, message)
   })
 end
 
-local function refuse(src, key, ...)
-  local message <const> = T(key, ...)
-
-  Siku.print.warn(message)
-  tell(src, 'error', message)
-end
-
 local function explain(reason, licenseName)
   return T(('licenses_reason_%s'):format(reason), licenseName)
-end
-
-local function characterOf(src, sessionId)
-  local characterId <const> = Siku.cache.getCurrentCharacterId(sessionId)
-
-  if not characterId then
-    refuse(src, 'licenses_no_character', sessionId)
-  end
-
-  return characterId
 end
 
 local function staffContext(src)
@@ -69,24 +52,54 @@ local function describe(holding)
 end
 
 Siku.command.register('grantlicense', function(src, args)
-  local characterId <const> = characterOf(src, args.target)
+  local characterId <const> = Siku.cache.getCurrentCharacterId(args.target)
+  local licenseName <const> = args.license
 
   if not characterId then
+    local message <const> = T('licenses_no_character', args.target)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    if args.target ~= src then
+      entities[#entities + 1] = { type = 'player', id = args.target, role = 'target' }
+    end
+
+    Siku.log.warn('licenses.command_refused', message, {
+      command = 'grantlicense',
+      reason = 'no_character',
+      license = licenseName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
-  local licenseName <const> = args.license
   local ok <const>, reason <const> = Siku.licenses.issue(characterId, licenseName, staffContext(src))
 
   if not ok then
-    refuse(src, 'licenses_refused', explain(reason, licenseName))
+    local message <const> = T('licenses_refused', explain(reason, licenseName))
+    local entities <const> = { { type = 'character', id = characterId, role = 'target', session = args.target } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('licenses.command_refused', message, {
+      command = 'grantlicense',
+      reason = reason,
+      license = licenseName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local holding <const> = Siku.licenses.getHolding(characterId, licenseName)
   local message <const> = T('licenses_granted', characterId, describe(holding))
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 
   if src ~= args.target then
@@ -104,24 +117,54 @@ end, {
 })
 
 Siku.command.register('revokelicense', function(src, args)
-  local characterId <const> = characterOf(src, args.target)
+  local characterId <const> = Siku.cache.getCurrentCharacterId(args.target)
+  local licenseName <const> = args.license
 
   if not characterId then
+    local message <const> = T('licenses_no_character', args.target)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    if args.target ~= src then
+      entities[#entities + 1] = { type = 'player', id = args.target, role = 'target' }
+    end
+
+    Siku.log.warn('licenses.command_refused', message, {
+      command = 'revokelicense',
+      reason = 'no_character',
+      license = licenseName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
-  local licenseName <const> = args.license
   local ok <const>, reason <const> = Siku.licenses.revoke(characterId, licenseName, staffContext(src))
 
   if not ok then
-    refuse(src, 'licenses_refused', explain(reason, licenseName))
+    local message <const> = T('licenses_refused', explain(reason, licenseName))
+    local entities <const> = { { type = 'character', id = characterId, role = 'target', session = args.target } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('licenses.command_refused', message, {
+      command = 'revokelicense',
+      reason = reason,
+      license = licenseName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local label <const> = labelOf(licenseName)
   local message <const> = T('licenses_revoked', characterId, label)
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 
   if src ~= args.target then
@@ -139,13 +182,31 @@ end, {
 })
 
 Siku.command.register('suspendlicense', function(src, args)
-  local characterId <const> = characterOf(src, args.target)
+  local characterId <const> = Siku.cache.getCurrentCharacterId(args.target)
+  local licenseName <const> = args.license
 
   if not characterId then
+    local message <const> = T('licenses_no_character', args.target)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    if args.target ~= src then
+      entities[#entities + 1] = { type = 'player', id = args.target, role = 'target' }
+    end
+
+    Siku.log.warn('licenses.command_refused', message, {
+      command = 'suspendlicense',
+      reason = 'no_character',
+      license = licenseName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
-  local licenseName <const> = args.license
   local options <const> = staffContext(src)
 
   if args.duration then
@@ -155,7 +216,21 @@ Siku.command.register('suspendlicense', function(src, args)
   local ok <const>, reason <const> = Siku.licenses.suspend(characterId, licenseName, options)
 
   if not ok then
-    refuse(src, 'licenses_refused', explain(reason, licenseName))
+    local message <const> = T('licenses_refused', explain(reason, licenseName))
+    local entities <const> = { { type = 'character', id = characterId, role = 'target', session = args.target } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('licenses.command_refused', message, {
+      command = 'suspendlicense',
+      reason = reason,
+      license = licenseName,
+      duration = args.duration,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
@@ -164,7 +239,6 @@ Siku.command.register('suspendlicense', function(src, args)
     and T('licenses_suspended_until', characterId, holding.label, holding.suspendedUntil)
     or T('licenses_suspended', characterId, holding.label)
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 
   if src ~= args.target then
@@ -183,24 +257,54 @@ end, {
 })
 
 Siku.command.register('liftlicense', function(src, args)
-  local characterId <const> = characterOf(src, args.target)
+  local characterId <const> = Siku.cache.getCurrentCharacterId(args.target)
+  local licenseName <const> = args.license
 
   if not characterId then
+    local message <const> = T('licenses_no_character', args.target)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    if args.target ~= src then
+      entities[#entities + 1] = { type = 'player', id = args.target, role = 'target' }
+    end
+
+    Siku.log.warn('licenses.command_refused', message, {
+      command = 'liftlicense',
+      reason = 'no_character',
+      license = licenseName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
-  local licenseName <const> = args.license
   local ok <const>, reason <const> = Siku.licenses.lift(characterId, licenseName, staffContext(src))
 
   if not ok then
-    refuse(src, 'licenses_refused', explain(reason, licenseName))
+    local message <const> = T('licenses_refused', explain(reason, licenseName))
+    local entities <const> = { { type = 'character', id = characterId, role = 'target', session = args.target } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('licenses.command_refused', message, {
+      command = 'liftlicense',
+      reason = reason,
+      license = licenseName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local label <const> = labelOf(licenseName)
   local message <const> = T('licenses_lifted', characterId, label)
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 
   if src ~= args.target then
@@ -218,14 +322,33 @@ end, {
 })
 
 Siku.command.register('licensepoints', function(src, args)
-  local characterId <const> = characterOf(src, args.target)
+  local characterId <const> = Siku.cache.getCurrentCharacterId(args.target)
+  local licenseName <const> = args.license
+  local delta <const> = args.delta
 
   if not characterId then
+    local message <const> = T('licenses_no_character', args.target)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    if args.target ~= src then
+      entities[#entities + 1] = { type = 'player', id = args.target, role = 'target' }
+    end
+
+    Siku.log.warn('licenses.command_refused', message, {
+      command = 'licensepoints',
+      reason = 'no_character',
+      license = licenseName,
+      delta = delta,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
-  local licenseName <const> = args.license
-  local delta <const> = args.delta
   local ok, reason
 
   if delta >= 0 then
@@ -235,14 +358,27 @@ Siku.command.register('licensepoints', function(src, args)
   end
 
   if not ok then
-    refuse(src, 'licenses_refused', explain(reason, licenseName))
+    local message <const> = T('licenses_refused', explain(reason, licenseName))
+    local entities <const> = { { type = 'character', id = characterId, role = 'target', session = args.target } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('licenses.command_refused', message, {
+      command = 'licensepoints',
+      reason = reason,
+      license = licenseName,
+      delta = delta,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local holding <const> = Siku.licenses.getHolding(characterId, licenseName)
   local message <const> = T('licenses_points_set', characterId, holding.label, holding.points, holding.maxPoints)
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 
   if src ~= args.target then
@@ -264,13 +400,41 @@ Siku.command.register('licenses', function(src, args)
   local sessionId <const> = args.target or src
 
   if sessionId ~= src and not Siku.permissions.hasPermission(Siku.cache.getCurrentCharacterId(src) or 0, PERMISSION_MANAGE) then
-    refuse(src, 'licenses_not_allowed_others')
+    local message <const> = T('licenses_not_allowed_others')
+
+    Siku.log.warn('licenses.command_refused', message, {
+      command = 'licenses',
+      reason = 'not_allowed_others',
+      console = false,
+    }, {
+      outcome = 'denied',
+      source = src,
+      entities = { { type = 'player', id = src, role = 'actor' }, { type = 'player', id = sessionId, role = 'target' } },
+    })
+    tell(src, 'error', message)
     return
   end
 
-  local characterId <const> = characterOf(src, sessionId)
+  local characterId <const> = Siku.cache.getCurrentCharacterId(sessionId)
 
   if not characterId then
+    local message <const> = T('licenses_no_character', sessionId)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    if sessionId ~= src then
+      entities[#entities + 1] = { type = 'player', id = sessionId, role = 'target' }
+    end
+
+    Siku.log.warn('licenses.command_refused', message, {
+      command = 'licenses',
+      reason = 'no_character',
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 

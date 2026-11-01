@@ -19,7 +19,16 @@ local function registerTick(key, fn)
         local ok <const>, err <const> = pcall(callback)
 
         if not ok then
-          Siku.print.error(("Spatial tick '%s' failed: %s"):format(name, tostring(err)))
+          Siku.log.error('spatial.failed', ("Spatial tick '%s' failed: %s"):format(name, tostring(err)), {
+            resource = Siku.name,
+            tick = name,
+            error = tostring(err),
+          }, {
+            outcome = 'failure',
+            entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } },
+            dedupe = tonumber((Siku.config.log.errors or {}).dedupeMs) or 5000,
+            key = name,
+          })
         end
       end
 

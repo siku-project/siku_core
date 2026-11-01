@@ -19,9 +19,19 @@ local function hasValidPayload(name, family, data)
   end
 
   if family.steps then
-    Siku.print.error(STEPS_PAYLOAD_ERROR:format(name))
+    Siku.log.error('progress.payload_invalid', STEPS_PAYLOAD_ERROR:format(name), {
+      resource = Siku.name,
+      reason = 'steps_missing',
+      call = name,
+      got = type(data),
+    }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
   else
-    Siku.print.error(PAYLOAD_ERROR:format(name, type(data)))
+    Siku.log.error('progress.payload_invalid', PAYLOAD_ERROR:format(name, type(data)), {
+      resource = Siku.name,
+      reason = 'payload_not_table',
+      call = name,
+      got = type(data),
+    }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
   end
 
   return false
