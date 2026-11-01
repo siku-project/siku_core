@@ -28,7 +28,15 @@ local function isReady(family)
     return true
   end
 
-  Siku.print.warn(("'%s' is not started, the %s call was ignored"):format(PROGRESS_RESOURCE, family.label))
+  Siku.log.warn('dependency.missing', ("'%s' is not started, the %s call was ignored"):format(PROGRESS_RESOURCE, family.label), {
+    resource = Siku.name,
+    dependency = PROGRESS_RESOURCE,
+    call = family.label,
+  }, {
+    entities = { { type = 'resource', id = PROGRESS_RESOURCE, role = 'subject', label = PROGRESS_RESOURCE } },
+    dedupe = tonumber((Siku.config.log.errors or {}).dedupeMs) or 5000,
+    key = PROGRESS_RESOURCE .. '|' .. family.label,
+  })
 
   return false
 end

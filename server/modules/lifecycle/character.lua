@@ -5,12 +5,19 @@
 ---@return nil
 local function handleCreateCharacterInstance(sessionId, characterData)
   if type(sessionId) ~= 'number' or type(characterData) ~= 'table' then
-    Siku.print.error(T('lifecycle_invalid_payload'))
+    Siku.log.error('lifecycle.character_payload_invalid', T('lifecycle_invalid_payload'), {
+      sessionType = type(sessionId),
+      payloadType = type(characterData),
+    })
     return
   end
 
   if not characterData.id or not characterData.user_id then
-    Siku.print.error(T('lifecycle_incomplete_data', sessionId))
+    Siku.log.error('lifecycle.character_data_incomplete', T('lifecycle_incomplete_data', sessionId), {
+      characterId = characterData.id,
+      userId = characterData.user_id,
+      dropped = true,
+    }, { source = sessionId, entities = { { type = 'player', id = sessionId, role = 'subject' } } })
     DropPlayer(tostring(sessionId), T('lifecycle_setup_failed'))
     return
   end
@@ -18,7 +25,11 @@ local function handleCreateCharacterInstance(sessionId, characterData)
   local user <const> = Siku.cache.getPlayer(sessionId)
 
   if not user then
-    Siku.print.error(T('lifecycle_no_cached_user', sessionId))
+    Siku.log.error('lifecycle.user_not_cached', T('lifecycle_no_cached_user', sessionId), {
+      characterId = characterData.id,
+      userId = characterData.user_id,
+      dropped = true,
+    }, { source = sessionId, entities = { { type = 'player', id = sessionId, role = 'subject' } } })
     DropPlayer(tostring(sessionId), T('lifecycle_setup_failed'))
     return
   end
@@ -26,7 +37,10 @@ local function handleCreateCharacterInstance(sessionId, characterData)
   local character <const> = Siku.Character.new(sessionId, characterData)
 
   if not user:addCharacter(character) then
-    Siku.print.error(T('lifecycle_character_cache_failed', character.id, sessionId))
+    Siku.log.error('lifecycle.character_cache_failed', T('lifecycle_character_cache_failed', character.id, sessionId), {
+      characterId = character.id,
+      userId = characterData.user_id,
+    }, { source = sessionId, entities = { { type = 'character', id = character.id, role = 'subject', session = sessionId } } })
     return
   end
 
@@ -40,7 +54,10 @@ local function handleCreateCharacterInstance(sessionId, characterData)
   character:publish()
   Siku.command.refreshSuggestions(sessionId)
 
-  Siku.print.debug(('Character %d active for session %d'):format(character.id, sessionId))
+  Siku.log.debug('lifecycle.character_activated', ('Character %d active for session %d'):format(character.id, sessionId), {
+    characterId = character.id,
+    userId = characterData.user_id,
+  }, { source = sessionId, entities = { { type = 'character', id = character.id, role = 'subject', session = sessionId } } })
 end
 
 AddEventHandler('siku:server:createCharacterInstance', handleCreateCharacterInstance)

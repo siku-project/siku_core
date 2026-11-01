@@ -1,5 +1,6 @@
 local EVENTS <const> = internal.events
 local RATE_LIMIT <const> = math.max(tonumber(Siku.config.callback.rateLimit) or 0, 0)
+local DEDUPE_MS <const> = tonumber((Siku.config.log.errors or {}).dedupeMs) or 5000
 
 local timestamps <const> = {}
 local bound <const> = {}
@@ -60,7 +61,17 @@ local function bindRequest(name)
     end
 
     if isRateLimited(sessionId, name) then
-      Siku.print.warn(("Callback '%s' rate limited for player %d"):format(name, sessionId))
+      Siku.log.warn('callback.rate_limited', ("Callback '%s' rate limited for player %d"):format(name, sessionId), {
+        resource = Siku.name,
+        callback = name,
+        caller = caller,
+      }, {
+        outcome = 'denied',
+        source = sessionId,
+        entities = { { type = 'player', id = sessionId, role = 'actor' } },
+        dedupe = DEDUPE_MS,
+        key = name .. '|' .. sessionId,
+      })
       TriggerClientEvent(
         EVENTS.CLIENT_RESPONSE:format(caller),
         sessionId,
@@ -122,7 +133,12 @@ end
 ---@return boolean ok, any ... Whether the call succeeded, then the handler results or the failure reason.
 local function triggerClient(target, name, ...)
   if type(target) ~= 'number' then
-    Siku.print.error(("Callback '%s' needs a numeric player id as target"):format(tostring(name)))
+    Siku.log.error('callback.definition_invalid', ("Callback '%s' needs a numeric player id as target"):format(tostring(name)), {
+      resource = Siku.name,
+      reason = 'target_invalid',
+      callback = tostring(name),
+      got = type(target),
+    }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
     return false, 'Invalid target'
   end
 

@@ -11,10 +11,6 @@ local EVENT_LIFTED <const> = 'lifted'
 local EVENT_REVOKED <const> = 'revoked'
 local EVENT_WITHDRAWN <const> = 'withdrawn'
 local EVENT_METADATA_CHANGED <const> = 'metadataChanged'
-local AUDIT_REISSUED <const> = 'reissued'
-local AUDIT_SUSPENSION_ENDED <const> = 'suspension_ended'
-local AUDIT_EXPIRY_SET <const> = 'expiry_set'
-local AUDIT_METADATA_SET <const> = 'metadata_set'
 
 local SELECT_HOLDINGS <const> = [[
   SELECT license_id, state, points, UNIX_TIMESTAMP(issued_at) AS issued_at,
@@ -67,7 +63,14 @@ local function settleSuspension(characterId, license, entry)
   entry.state = STATE_VALID
   entry.suspendedUntil = nil
 
-  internal.audit(AUDIT_SUSPENSION_ENDED, license.id, characterId, nil, nil)
+  Siku.log.audit('licenses.suspension_ended', {
+    message = ('Suspension of %s ended for character %d'):format(license.name, characterId),
+    entities = {
+      { type = 'license', id = license.name, role = 'subject', label = license.label },
+      { type = 'character', id = characterId, role = 'target' },
+    },
+    data = { license = license.name, cause = 'expired' },
+  })
   internal.emit(EVENT_LIFTED, characterId, license.name, state.sessions[characterId])
 
   return true
@@ -89,7 +92,9 @@ local function loadEntries(characterId)
       settleSuspension(characterId, license, entry)
       entries[license.name] = entry
     else
-      Siku.print.warn(('Character %d holds unknown license #%d'):format(characterId, row.license_id))
+      Siku.log.warn('licenses.holding_orphaned', ('Character %d holds unknown license #%d'):format(characterId, row.license_id), {
+        licenseId = row.license_id,
+      }, { entities = { { type = 'character', id = characterId, role = 'subject' } } })
     end
   end
 
@@ -257,9 +262,20 @@ function Siku.licenses.issue(characterId, licenseName, options)
 
   cacheEntry(characterId, license, entry)
 
-  local details <const> = ('expires=%s reason=%s'):format(internal.formatDate(expiresAt) or 'never', internal.reasonOf(options) or '')
+  local entities <const> = {
+    { type = 'license', id = license.name, role = 'subject', label = license.label },
+    { type = 'character', id = characterId, role = 'target' },
+  }
 
-  internal.audit(reissue and AUDIT_REISSUED or EVENT_ISSUED, license.id, characterId, performedBy, details)
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit(reissue and 'licenses.reissued' or 'licenses.issued', {
+    message = ('License %s %s to character %d, expires %s'):format(license.name, reissue and 'reissued' or 'issued', characterId, internal.formatDate(expiresAt) or 'never'),
+    entities = entities,
+    data = { license = license.name, expiresAt = internal.formatDate(expiresAt), reason = internal.reasonOf(options), points = license.maxPoints },
+  })
   internal.emit(EVENT_ISSUED, characterId, license.name, internal.publicHolding(license, entry), state.sessions[characterId])
 
   return true, nil
@@ -307,9 +323,20 @@ function Siku.licenses.suspend(characterId, licenseName, options)
   internal.push(characterId)
 
   local performedBy <const> = internal.performerOf(options)
-  local details <const> = ('until=%s reason=%s'):format(internal.formatDate(endsAt) or 'indefinite', internal.reasonOf(options) or '')
+  local entities <const> = {
+    { type = 'license', id = license.name, role = 'subject', label = license.label },
+    { type = 'character', id = characterId, role = 'target' },
+  }
 
-  internal.audit(EVENT_SUSPENDED, license.id, characterId, performedBy, details)
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('licenses.suspended', {
+    message = ('License %s suspended for character %d until %s'):format(license.name, characterId, internal.formatDate(endsAt) or 'further notice'),
+    entities = entities,
+    data = { license = license.name, suspendedUntil = internal.formatDate(endsAt), reason = internal.reasonOf(options) },
+  })
   internal.emit(EVENT_SUSPENDED, characterId, license.name, internal.formatDate(endsAt), state.sessions[characterId])
 
   return true, nil
@@ -344,7 +371,22 @@ function Siku.licenses.lift(characterId, licenseName, context)
   entry.suspendedUntil = nil
 
   internal.push(characterId)
-  internal.audit(EVENT_LIFTED, license.id, characterId, internal.performerOf(context), internal.reasonOf(context))
+
+  local performedBy <const> = internal.performerOf(context)
+  local entities <const> = {
+    { type = 'license', id = license.name, role = 'subject', label = license.label },
+    { type = 'character', id = characterId, role = 'target' },
+  }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('licenses.lifted', {
+    message = ('Suspension of %s lifted for character %d'):format(license.name, characterId),
+    entities = entities,
+    data = { license = license.name, reason = internal.reasonOf(context) },
+  })
   internal.emit(EVENT_LIFTED, characterId, license.name, state.sessions[characterId])
 
   return true, nil
@@ -375,7 +417,22 @@ function Siku.licenses.revoke(characterId, licenseName, context)
 
   forgetAnnounced(characterId, license)
   internal.push(characterId)
-  internal.audit(EVENT_REVOKED, license.id, characterId, internal.performerOf(context), internal.reasonOf(context))
+
+  local performedBy <const> = internal.performerOf(context)
+  local entities <const> = {
+    { type = 'license', id = license.name, role = 'subject', label = license.label },
+    { type = 'character', id = characterId, role = 'target' },
+  }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('licenses.revoked', {
+    message = ('License %s revoked from character %d'):format(license.name, characterId),
+    entities = entities,
+    data = { license = license.name, reason = internal.reasonOf(context) },
+  })
   internal.emit(EVENT_REVOKED, characterId, license.name, state.sessions[characterId])
 
   return true, nil
@@ -402,7 +459,22 @@ function Siku.licenses.withdraw(characterId, licenseName, context)
 
   forgetAnnounced(characterId, license)
   internal.push(characterId)
-  internal.audit(EVENT_WITHDRAWN, license.id, characterId, internal.performerOf(context), internal.reasonOf(context))
+
+  local performedBy <const> = internal.performerOf(context)
+  local entities <const> = {
+    { type = 'license', id = license.name, role = 'subject', label = license.label },
+    { type = 'character', id = characterId, role = 'target' },
+  }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('licenses.withdrawn', {
+    message = ('License %s withdrawn from character %d'):format(license.name, characterId),
+    entities = entities,
+    data = { license = license.name, reason = internal.reasonOf(context) },
+  })
   internal.emit(EVENT_WITHDRAWN, characterId, license.name, state.sessions[characterId])
 
   return true, nil
@@ -429,7 +501,14 @@ function Siku.licenses.setMetadata(characterId, licenseName, metadata)
   entry.metadata = copy
 
   internal.push(characterId)
-  internal.audit(AUDIT_METADATA_SET, license.id, characterId, nil, nil)
+  Siku.log.audit('licenses.metadata_set', {
+    message = ('Metadata of %s updated for character %d'):format(license.name, characterId),
+    entities = {
+      { type = 'license', id = license.name, role = 'subject', label = license.label },
+      { type = 'character', id = characterId, role = 'target' },
+    },
+    data = { license = license.name, metadata = copy },
+  })
   internal.emit(EVENT_METADATA_CHANGED, characterId, license.name, Siku.table.deepClone(copy))
 
   return true, nil
@@ -469,13 +548,22 @@ function Siku.licenses.setExpiry(characterId, licenseName, expiresAt, context)
 
   forgetAnnounced(characterId, license)
   internal.push(characterId)
-  internal.audit(
-    AUDIT_EXPIRY_SET,
-    license.id,
-    characterId,
-    internal.performerOf(context),
-    ('expires=%s reason=%s'):format(internal.formatDate(timestamp) or 'never', internal.reasonOf(context) or '')
-  )
+
+  local performedBy <const> = internal.performerOf(context)
+  local entities <const> = {
+    { type = 'license', id = license.name, role = 'subject', label = license.label },
+    { type = 'character', id = characterId, role = 'target' },
+  }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('licenses.expiry_set', {
+    message = ('Expiry of %s set to %s for character %d'):format(license.name, internal.formatDate(timestamp) or 'never', characterId),
+    entities = entities,
+    data = { license = license.name, expiresAt = internal.formatDate(timestamp), reason = internal.reasonOf(context) },
+  })
 
   return true, nil
 end

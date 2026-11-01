@@ -14,7 +14,17 @@ local function apply(list)
     local ok <const>, err <const> = pcall(listeners[index], holdings)
 
     if not ok then
-      Siku.print.error(('Licenses listener failed: %s'):format(tostring(err)))
+      Siku.log.error('listener.failed', ('Licenses listener failed: %s'):format(tostring(err)), {
+        resource = Siku.name,
+        domain = 'licenses',
+        listener = index,
+        error = tostring(err),
+      }, {
+        outcome = 'failure',
+        entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } },
+        dedupe = tonumber((Siku.config.log.errors or {}).dedupeMs) or 5000,
+        key = 'licenses|' .. index,
+      })
     end
   end
 end

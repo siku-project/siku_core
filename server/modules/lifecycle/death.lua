@@ -42,7 +42,10 @@ local function handleDeathStateChanged(sessionId, dead)
   end
 
   if not matchesPed(sessionId, dead) then
-    Siku.print.warn(T('death_report_rejected', sessionId, character.id))
+    Siku.log.warn('lifecycle.death_report_rejected', T('death_report_rejected', sessionId, character.id), {
+      characterId = character.id,
+      reported = dead,
+    }, { source = sessionId, entities = { { type = 'character', id = character.id, role = 'subject', session = sessionId } } })
     return
   end
 
@@ -53,7 +56,10 @@ local function handleDeathStateChanged(sessionId, dead)
   end
 
   current:setDead(dead)
-  Siku.print.debug(('Character %d is now %s (session %d)'):format(current.id, dead and 'dead' or 'alive', sessionId))
+  Siku.log.debug('lifecycle.death_state_changed', ('Character %d is now %s (session %d)'):format(current.id, dead and 'dead' or 'alive', sessionId), {
+    characterId = current.id,
+    dead = dead,
+  }, { source = sessionId, entities = { { type = 'character', id = current.id, role = 'subject', session = sessionId } } })
 end
 
 RegisterNetEvent(DEATH_EVENT, function(dead)

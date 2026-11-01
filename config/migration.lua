@@ -192,23 +192,6 @@ MigrationConfig = {
         },
       },
       {
-        name = 'rbac_audit_log',
-        columns = {
-          { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
-          { name = 'action', type = 'VARCHAR(50)', notNull = true },
-          { name = 'target_type', type = 'VARCHAR(50)', notNull = true },
-          { name = 'target_id', type = 'VARCHAR(100)', notNull = true },
-          { name = 'performed_by', type = 'INT', unsigned = true, default = 'NULL' },
-          { name = 'details', type = 'TEXT', default = 'NULL' },
-          { name = 'created_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
-        },
-        indexes = {
-          { name = 'idx_audit_action', columns = { 'action' } },
-          { name = 'idx_audit_target', columns = { 'target_type', 'target_id' } },
-          { name = 'idx_audit_created_at', columns = { 'created_at' } },
-        },
-      },
-      {
         name = 'jobs',
         columns = {
           { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
@@ -309,24 +292,6 @@ MigrationConfig = {
             onDelete = 'RESTRICT',
             onUpdate = 'CASCADE',
           },
-        },
-      },
-      {
-        name = 'job_audit_log',
-        columns = {
-          { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
-          { name = 'action', type = 'VARCHAR(50)', notNull = true },
-          { name = 'job_id', type = 'INT', unsigned = true, default = 'NULL' },
-          { name = 'target_character_id', type = 'INT', unsigned = true, default = 'NULL' },
-          { name = 'performed_by', type = 'INT', unsigned = true, default = 'NULL' },
-          { name = 'details', type = 'TEXT', default = 'NULL' },
-          { name = 'created_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
-        },
-        indexes = {
-          { name = 'idx_job_audit_action', columns = { 'action' } },
-          { name = 'idx_job_audit_job', columns = { 'job_id' } },
-          { name = 'idx_job_audit_target', columns = { 'target_character_id' } },
-          { name = 'idx_job_audit_created_at', columns = { 'created_at' } },
         },
       },
       {
@@ -451,24 +416,6 @@ MigrationConfig = {
             onDelete = 'CASCADE',
             onUpdate = 'CASCADE',
           },
-        },
-      },
-      {
-        name = 'license_audit_log',
-        columns = {
-          { name = 'id', type = 'INT', unsigned = true, autoIncrement = true, primaryKey = true },
-          { name = 'action', type = 'VARCHAR(50)', notNull = true },
-          { name = 'license_id', type = 'INT', unsigned = true, default = 'NULL' },
-          { name = 'target_character_id', type = 'INT', unsigned = true, default = 'NULL' },
-          { name = 'performed_by', type = 'INT', unsigned = true, default = 'NULL' },
-          { name = 'details', type = 'TEXT', default = 'NULL' },
-          { name = 'created_at', type = 'TIMESTAMP', default = 'CURRENT_TIMESTAMP' },
-        },
-        indexes = {
-          { name = 'idx_license_audit_action', columns = { 'action' } },
-          { name = 'idx_license_audit_license', columns = { 'license_id' } },
-          { name = 'idx_license_audit_target', columns = { 'target_character_id' } },
-          { name = 'idx_license_audit_created_at', columns = { 'created_at' } },
         },
       },
     },

@@ -275,18 +275,22 @@ function cron.create(expression, job, debug)
   function task.run()
     entry.active = true
 
-    if entry.debug then
-      Siku.print.info(('Cron task %d started'):format(id))
-    end
+    Siku.log.info('cron.lifecycle', ('Cron task %d started'):format(id), {
+      action = 'started',
+      task = id,
+      expression = expression,
+    }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
   end
 
   --- Deactivate the task.
   function task.stop()
     entry.active = false
 
-    if entry.debug then
-      Siku.print.info(('Cron task %d stopped'):format(id))
-    end
+    Siku.log.info('cron.lifecycle', ('Cron task %d stopped'):format(id), {
+      action = 'stopped',
+      task = id,
+      expression = expression,
+    }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
   end
 
   --- Get the next run time.
@@ -303,11 +307,15 @@ function cron.create(expression, job, debug)
 
   entries[id] = { entry = entry, task = task }
 
-  if entry.debug then
-    local nextRun <const> = findNextRun(fields)
-    local nextStr <const> = nextRun and os.date('%Y-%m-%d %H:%M', os.time(nextRun)) or 'none'
-    Siku.print.info(('Cron task %d created: \'%s\' — next: %s'):format(id, expression, nextStr))
-  end
+  local nextRun <const> = findNextRun(fields)
+  local nextStr <const> = nextRun and os.date('%Y-%m-%d %H:%M', os.time(nextRun)) or 'none'
+
+  Siku.log.info('cron.lifecycle', ('Cron task %d created: \'%s\', next: %s'):format(id, expression, nextStr), {
+    action = 'created',
+    task = id,
+    expression = expression,
+    next = nextStr,
+  }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
 
   return task
 end
@@ -337,7 +345,11 @@ local function runJob(id, data)
     local ok <const>, err <const> = pcall(data.entry.job, data.task)
 
     if not ok then
-      Siku.print.error(('Cron task %d failed: %s'):format(id, tostring(err)))
+      Siku.log.error('cron.failed', ('Cron task %d failed: %s'):format(id, tostring(err)), {
+        task = id,
+        expression = data.task.expression,
+        error = tostring(err),
+      }, { outcome = 'failure', entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
     end
   end)
 end
@@ -355,7 +367,10 @@ local function runDueTasks(now)
       entry.lastRun = now
 
       if entry.debug then
-        Siku.print.debug(('Cron task %d executing'):format(id))
+        Siku.log.debug('cron.executed', ('Cron task %d executing'):format(id), {
+          task = id,
+          expression = data.task.expression,
+        }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
       end
 
       runJob(id, data)

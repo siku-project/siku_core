@@ -22,38 +22,12 @@ local function tell(src, kind, message)
   })
 end
 
---- Reports a refusal to the caller, with the console kept informed.
----@param src number The caller's server id, or 0 for the console.
----@param key string The translation key.
----@vararg any The format arguments.
----@return nil
-local function refuse(src, key, ...)
-  local message <const> = T(key, ...)
-
-  Siku.print.warn(message)
-  tell(src, 'error', message)
-end
-
 --- Translates an engine reason into a line for the caller.
 ---@param reason string The reason the engine returned.
 ---@param accountId? number The account the action aimed at.
 ---@return string message The line.
 local function explain(reason, accountId)
   return T(('accounts_reason_%s'):format(reason), accountId or 0)
-end
-
---- The character a session plays, or a refusal.
----@param src number The caller's server id.
----@param sessionId number The session looked at.
----@return number? characterId The character id, or nil after refusing.
-local function characterOf(src, sessionId)
-  local characterId <const> = Siku.cache.getCurrentCharacterId(sessionId)
-
-  if not characterId then
-    refuse(src, 'accounts_no_character', sessionId)
-  end
-
-  return characterId
 end
 
 --- The character acting, for the journal.
@@ -81,13 +55,41 @@ Siku.command.register('accounts', function(src, args)
   local sessionId <const> = args.target or src
 
   if sessionId ~= src and not Siku.permissions.hasPermission(Siku.cache.getCurrentCharacterId(src) or 0, PERMISSION_MANAGE) then
-    refuse(src, 'accounts_not_allowed_others')
+    local message <const> = T('accounts_not_allowed_others')
+
+    Siku.log.warn('accounts.command_refused', message, {
+      command = 'accounts',
+      reason = 'not_allowed_others',
+      console = false,
+    }, {
+      outcome = 'denied',
+      source = src,
+      entities = { { type = 'player', id = src, role = 'actor' }, { type = 'player', id = sessionId, role = 'target' } },
+    })
+    tell(src, 'error', message)
     return
   end
 
-  local characterId <const> = characterOf(src, sessionId)
+  local characterId <const> = Siku.cache.getCurrentCharacterId(sessionId)
 
   if not characterId then
+    local message <const> = T('accounts_no_character', sessionId)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    if sessionId ~= src then
+      entities[#entities + 1] = { type = 'player', id = sessionId, role = 'target' }
+    end
+
+    Siku.log.warn('accounts.command_refused', message, {
+      command = 'accounts',
+      reason = 'no_character',
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
@@ -114,22 +116,50 @@ end, {
 })
 
 Siku.command.register('createaccount', function(src, args)
-  local characterId <const> = characterOf(src, args.target)
+  local characterId <const> = Siku.cache.getCurrentCharacterId(args.target)
 
   if not characterId then
+    local message <const> = T('accounts_no_character', args.target)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    if args.target ~= src then
+      entities[#entities + 1] = { type = 'player', id = args.target, role = 'target' }
+    end
+
+    Siku.log.warn('accounts.command_refused', message, {
+      command = 'createaccount',
+      reason = 'no_character',
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local accountId <const>, reason <const> = Siku.accounts.create(OWNER_CHARACTER, characterId)
 
   if not accountId then
-    refuse(src, 'accounts_refused', explain(reason))
+    local message <const> = T('accounts_refused', explain(reason))
+    local entities <const> = { { type = 'character', id = characterId, role = 'target', session = args.target } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('accounts.command_refused', message, {
+      command = 'createaccount',
+      reason = reason,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local message <const> = T('accounts_created', accountId, characterId)
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 end, {
   permission = PERMISSION_MANAGE,
@@ -145,13 +175,26 @@ Siku.command.register('setbalance', function(src, args)
   local ok <const>, reason <const> = Siku.accounts.setBalance(args.account, args.amount, staffContext(src))
 
   if not ok then
-    refuse(src, 'accounts_refused', explain(reason, args.account))
+    local message <const> = T('accounts_refused', explain(reason, args.account))
+    local entities <const> = { { type = 'account', id = args.account, role = 'target' } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('accounts.command_refused', message, {
+      command = 'setbalance',
+      reason = reason,
+      account = args.account,
+      amount = args.amount,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local message <const> = T('accounts_balance_set', args.account, Siku.math.formatNumber(Siku.accounts.getBalance(args.account)))
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 end, {
   permission = PERMISSION_MANAGE,
@@ -168,13 +211,26 @@ Siku.command.register('creditaccount', function(src, args)
   local ok <const>, reason <const> = Siku.accounts.credit(args.account, args.amount, staffContext(src))
 
   if not ok then
-    refuse(src, 'accounts_refused', explain(reason, args.account))
+    local message <const> = T('accounts_refused', explain(reason, args.account))
+    local entities <const> = { { type = 'account', id = args.account, role = 'target' } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('accounts.command_refused', message, {
+      command = 'creditaccount',
+      reason = reason,
+      account = args.account,
+      amount = args.amount,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local message <const> = T('accounts_credited', Siku.math.formatNumber(args.amount), args.account, Siku.math.formatNumber(Siku.accounts.getBalance(args.account)))
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 end, {
   permission = PERMISSION_MANAGE,
@@ -191,13 +247,26 @@ Siku.command.register('debitaccount', function(src, args)
   local ok <const>, reason <const> = Siku.accounts.debit(args.account, args.amount, staffContext(src))
 
   if not ok then
-    refuse(src, 'accounts_refused', explain(reason, args.account))
+    local message <const> = T('accounts_refused', explain(reason, args.account))
+    local entities <const> = { { type = 'account', id = args.account, role = 'target' } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('accounts.command_refused', message, {
+      command = 'debitaccount',
+      reason = reason,
+      account = args.account,
+      amount = args.amount,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local message <const> = T('accounts_debited', Siku.math.formatNumber(args.amount), args.account, Siku.math.formatNumber(Siku.accounts.getBalance(args.account)))
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 end, {
   permission = PERMISSION_MANAGE,
@@ -222,13 +291,25 @@ Siku.command.register('freezeaccount', function(src, args)
   end
 
   if not ok then
-    refuse(src, 'accounts_refused', explain(reason, args.account))
+    local message <const> = T('accounts_refused', explain(reason, args.account))
+    local entities <const> = { { type = 'account', id = args.account, role = 'target' } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('accounts.command_refused', message, {
+      command = 'freezeaccount',
+      reason = reason,
+      account = args.account,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local message <const> = T(frozen and 'accounts_unfrozen' or 'accounts_frozen', args.account)
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 end, {
   permission = PERMISSION_MANAGE,
@@ -244,13 +325,25 @@ Siku.command.register('closeaccount', function(src, args)
   local ok <const>, reason <const> = Siku.accounts.close(args.account, staffContext(src).performedBy)
 
   if not ok then
-    refuse(src, 'accounts_refused', explain(reason, args.account))
+    local message <const> = T('accounts_refused', explain(reason, args.account))
+    local entities <const> = { { type = 'account', id = args.account, role = 'target' } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('accounts.command_refused', message, {
+      command = 'closeaccount',
+      reason = reason,
+      account = args.account,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+    tell(src, 'error', message)
     return
   end
 
   local message <const> = T('accounts_closed', args.account)
 
-  Siku.print.info(message)
   tell(src, 'success', message)
 end, {
   permission = PERMISSION_MANAGE,

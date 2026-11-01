@@ -9,6 +9,7 @@ local DEFAULT_PER_SECOND <const> = 30
 local DEFAULT_BURST <const> = 90
 local DEFAULT_BYTES_PER_SECOND <const> = 32 * 1024
 local MIN_BYTES_PER_SECOND <const> = 1024
+local DEFAULT_DEDUPE_MS <const> = 5000
 
 local config <const> = Siku.config.log
 local limits <const> = config.limits or {}
@@ -27,6 +28,7 @@ _SikuInternal.log = {
     perSecond = perSecond,
     burst = math.max(tonumber(client.burst) or DEFAULT_BURST, perSecond),
     bytesPerSecond = math.max(tonumber(client.bytesPerSecond) or DEFAULT_BYTES_PER_SECOND, MIN_BYTES_PER_SECOND),
+    dedupeMs = tonumber((config.errors or {}).dedupeMs) or DEFAULT_DEDUPE_MS,
   },
 }
 

@@ -67,17 +67,29 @@ local function createChannel(sendRequest, sendResponse, forwardTarget)
   ---@return boolean registered Whether the handler was stored.
   function channel.register(name, handler)
     if type(name) ~= 'string' or name == '' then
-      Siku.print.error('Callback name must be a non-empty string')
+      Siku.log.error('callback.definition_invalid', 'Callback name must be a non-empty string', {
+        resource = Siku.name,
+        reason = 'name_invalid',
+        got = type(name),
+      }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
       return false
     end
 
     if not Siku.isCallable(handler) then
-      Siku.print.error(("Callback '%s' needs a function handler"):format(name))
+      Siku.log.error('callback.definition_invalid', ("Callback '%s' needs a function handler"):format(name), {
+        resource = Siku.name,
+        reason = 'handler_not_function',
+        callback = name,
+        got = type(handler),
+      }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
       return false
     end
 
     if handlers[name] then
-      Siku.print.warn(("Callback '%s' is already registered, replacing it"):format(name))
+      Siku.log.warn('callback.overridden', ("Callback '%s' is already registered, replacing it"):format(name), {
+        resource = Siku.name,
+        callback = name,
+      }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
     end
 
     handlers[name] = handler
@@ -168,7 +180,16 @@ local function createChannel(sendRequest, sendResponse, forwardTarget)
     if not outcome[1] then
       local reason <const> = tostring(outcome[2])
 
-      Siku.print.error(("Callback '%s' failed: %s"):format(tostring(name), reason))
+      Siku.log.error('callback.failed', ("Callback '%s' failed: %s"):format(tostring(name), reason), {
+        resource = Siku.name,
+        callback = tostring(name),
+        caller = caller,
+        error = reason,
+      }, {
+        outcome = 'failure',
+        source = forwardTarget and target or nil,
+        entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } },
+      })
       sendResponse(target, caller, requestId, false, table.pack(reason))
 
       return
