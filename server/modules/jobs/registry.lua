@@ -312,7 +312,12 @@ local function seedDefinition(normalized, existing, resource)
       end
 
       if rankTaken then
-        Siku.print.warn(('Job %q: grade %q skipped, rank %d is already used'):format(normalized.name, grade.name, grade.rank))
+        Siku.log.warn('jobs.grade_skipped', ('Job %q: grade %q skipped, rank %d is already used'):format(normalized.name, grade.name, grade.rank), {
+          job = normalized.name,
+          grade = grade.name,
+          rank = grade.rank,
+          resource = resource,
+        }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
       else
         local gradeId <const> = MySQL.insert.await(
           'INSERT INTO job_grades (job_id, name, label, rank_order) VALUES (?, ?, ?, ?)',
@@ -344,24 +349,40 @@ function Siku.jobs.register(definition)
   local normalized <const>, reason <const> = normalizeDefinition(definition)
 
   if not normalized then
-    Siku.print.error(('Job registration from %q refused: %s'):format(resource, reason))
+    Siku.log.error('jobs.registration_refused', ('Job registration from %q refused: %s'):format(resource, reason), {
+      resource = resource,
+      reason = reason,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false, reason
   end
 
   if not internal.waitReady() then
-    Siku.print.error(('Job %q could not be registered: the registry never came up'):format(normalized.name))
+    Siku.log.error('jobs.registration_refused', ('Job %q could not be registered: the registry never came up'):format(normalized.name), {
+      resource = resource,
+      job = normalized.name,
+      reason = 'not_ready',
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false, 'not_ready'
   end
 
   local existing <const> = state.byName[normalized.name]
 
   if existing and isHeldElsewhere(existing, resource) then
-    Siku.print.error(('Job %q is owned by %q, registration from %q refused'):format(normalized.name, existing.resource, resource))
+    Siku.log.error('jobs.registration_refused', ('Job %q is owned by %q, registration from %q refused'):format(normalized.name, existing.resource, resource), {
+      resource = resource,
+      job = normalized.name,
+      reason = 'owned_elsewhere',
+      owner = existing.resource,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false, 'owned_elsewhere'
   end
 
   if existing and existing.resource and existing.resource ~= resource then
-    Siku.print.warn(('Job %q moves from %q to %q'):format(normalized.name, existing.resource, resource))
+    Siku.log.warn('jobs.moved', ('Job %q moves from %q to %q'):format(normalized.name, existing.resource, resource), {
+      job = normalized.name,
+      from = existing.resource,
+      to = resource,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
   end
 
   local jobId <const> = seedDefinition(normalized, existing, resource)
@@ -374,7 +395,11 @@ function Siku.jobs.register(definition)
   job.active = true
 
   internal.emit(EVENT_REGISTERED, job.name, internal.publicJob(job))
-  Siku.print.info(('Job %q registered by %q (%d grade(s))'):format(job.name, resource, Siku.table.size(job.grades.byName)))
+  Siku.log.info('jobs.registered', ('Job %q registered by %q (%d grade(s))'):format(job.name, resource, Siku.table.size(job.grades.byName)), {
+    job = job.name,
+    resource = resource,
+    grades = Siku.table.size(job.grades.byName),
+  }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
 
   return true, nil
 end
@@ -390,7 +415,10 @@ local function deactivateJobsOf(resource)
 
       internal.dropDuties(job)
       internal.emit(EVENT_DEACTIVATED, job.name)
-      Siku.print.info(('Job %q is dormant: %q stopped'):format(job.name, resource))
+      Siku.log.info('jobs.dormant', ('Job %q is dormant: %q stopped'):format(job.name, resource), {
+        job = job.name,
+        resource = resource,
+      }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     end
   end
 end
@@ -402,7 +430,7 @@ function _SikuInternal.InitJobs()
 
   state.ready = true
 
-  Siku.print.success(('Job engine initialized with %d job(s)'):format(count))
+  Siku.log.info('jobs.ready', ('Job engine initialized with %d job(s)'):format(count), { jobs = count })
 end
 
 AddEventHandler('onResourceStop', function(resource)

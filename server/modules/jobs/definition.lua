@@ -70,7 +70,17 @@ function Siku.jobs.setLabel(jobName, label, performedBy)
 
   MySQL.update.await('UPDATE jobs SET label = ? WHERE id = ?', { label, job.id })
 
-  internal.audit('label_changed', job.id, nil, performedBy, ('from=%s to=%s'):format(job.label, label))
+  local entities <const> = { { type = 'job', id = job.name, role = 'subject', label = label } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('jobs.label_changed', {
+    message = ('Job %s relabeled from %s to %s'):format(job.name, job.label, label),
+    entities = entities,
+    data = { job = job.name, from = job.label, to = label },
+  })
   settle(job)
 
   return true, nil
@@ -124,7 +134,17 @@ function Siku.jobs.createGrade(jobName, grade, performedBy)
     MySQL.update.await('INSERT IGNORE INTO job_grade_permissions (grade_id, pattern) VALUES (?, ?)', { gradeId, permissions[index] })
   end
 
-  internal.audit('grade_created', job.id, nil, performedBy, ('grade=%s rank=%d'):format(grade.name, rank))
+  local entities <const> = { { type = 'job', id = job.name, role = 'subject', label = job.label } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('jobs.grade_created', {
+    message = ('Grade %s (rank %d) created in %s'):format(grade.name, rank, job.name),
+    entities = entities,
+    data = { job = job.name, grade = grade.name, label = grade.label, rank = rank, permissions = permissions },
+  })
   settle(job)
 
   return true, nil
@@ -171,7 +191,17 @@ function Siku.jobs.updateGrade(jobName, gradeName, changes, performedBy)
 
   MySQL.update.await('UPDATE job_grades SET label = ?, rank_order = ? WHERE id = ?', { label, rank, grade.id })
 
-  internal.audit('grade_updated', job.id, nil, performedBy, ('grade=%s label=%s rank=%d'):format(grade.name, label, rank))
+  local entities <const> = { { type = 'job', id = job.name, role = 'subject', label = job.label } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('jobs.grade_updated', {
+    message = ('Grade %s of %s updated: %s, rank %d'):format(grade.name, job.name, label, rank),
+    entities = entities,
+    data = { job = job.name, grade = grade.name, label = label, rank = rank, previousLabel = grade.label, previousRank = grade.rank },
+  })
   settle(job)
 
   return true, nil
@@ -213,14 +243,38 @@ function Siku.jobs.deleteGrade(jobName, gradeName, performedBy)
 
     if entry then
       internal.applyGrade(characterId, job, entry, below)
-      internal.audit('grade_changed', job.id, characterId, performedBy, ('from=%s to=%s cause=grade_deleted'):format(grade.name, below.name))
+
+      local entities <const> = {
+        { type = 'job', id = job.name, role = 'subject', label = job.label },
+        { type = 'character', id = characterId, role = 'target' },
+      }
+
+      if performedBy then
+        entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+      end
+
+      Siku.log.audit('jobs.grade_changed', {
+        message = ('Character %d moved from %s to %s in %s, grade deleted'):format(characterId, grade.name, below.name, job.name),
+        entities = entities,
+        data = { job = job.name, from = grade.name, to = below.name, cause = 'grade_deleted' },
+      })
       demoted[#demoted + 1] = characterId
     end
   end
 
   MySQL.update.await('DELETE FROM job_grades WHERE id = ?', { grade.id })
 
-  internal.audit('grade_deleted', job.id, nil, performedBy, ('grade=%s demoted=%d'):format(grade.name, #demoted))
+  local entities <const> = { { type = 'job', id = job.name, role = 'subject', label = job.label } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('jobs.grade_deleted', {
+    message = ('Grade %s deleted from %s, %d member(s) demoted'):format(grade.name, job.name, #demoted),
+    entities = entities,
+    data = { job = job.name, grade = grade.name, rank = grade.rank, demoted = #demoted },
+  })
   settle(job)
 
   return true, nil, demoted
@@ -256,7 +310,17 @@ function Siku.jobs.declarePermission(jobName, permission, performedBy)
     { job.id, name, requiresDuty and 1 or 0 }
   )
 
-  internal.audit('permission_declared', job.id, nil, performedBy, ('permission=%s duty=%s'):format(name, tostring(requiresDuty)))
+  local entities <const> = { { type = 'job', id = job.name, role = 'subject', label = job.label } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('jobs.permission_declared', {
+    message = ('Permission %s declared on %s%s'):format(name, job.name, requiresDuty and ', duty required' or ''),
+    entities = entities,
+    data = { job = job.name, permission = name, requiresDuty = requiresDuty },
+  })
   settle(job)
 
   return true, nil
@@ -284,7 +348,17 @@ function Siku.jobs.removePermission(jobName, name, performedBy)
 
   MySQL.update.await('DELETE FROM job_permissions WHERE id = ?', { permission.id })
 
-  internal.audit('permission_removed', job.id, nil, performedBy, ('permission=%s'):format(name))
+  local entities <const> = { { type = 'job', id = job.name, role = 'subject', label = job.label } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('jobs.permission_removed', {
+    message = ('Permission %s removed from %s'):format(name, job.name),
+    entities = entities,
+    data = { job = job.name, permission = name },
+  })
   settle(job)
 
   return true, nil
@@ -320,7 +394,17 @@ function Siku.jobs.grantPermission(jobName, gradeName, pattern, performedBy)
 
   MySQL.update.await('INSERT IGNORE INTO job_grade_permissions (grade_id, pattern) VALUES (?, ?)', { grade.id, pattern })
 
-  internal.audit('permission_granted', job.id, nil, performedBy, ('grade=%s pattern=%s'):format(grade.name, pattern))
+  local entities <const> = { { type = 'job', id = job.name, role = 'subject', label = job.label } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('jobs.permission_granted', {
+    message = ('Grade %s of %s granted %s'):format(grade.name, job.name, pattern),
+    entities = entities,
+    data = { job = job.name, grade = grade.name, pattern = pattern },
+  })
   settle(job)
 
   return true, nil
@@ -352,7 +436,17 @@ function Siku.jobs.revokePermission(jobName, gradeName, pattern, performedBy)
 
   MySQL.update.await('DELETE FROM job_grade_permissions WHERE grade_id = ? AND pattern = ?', { grade.id, pattern })
 
-  internal.audit('permission_revoked', job.id, nil, performedBy, ('grade=%s pattern=%s'):format(grade.name, pattern))
+  local entities <const> = { { type = 'job', id = job.name, role = 'subject', label = job.label } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('jobs.permission_revoked', {
+    message = ('Grade %s of %s lost %s'):format(grade.name, job.name, pattern),
+    entities = entities,
+    data = { job = job.name, grade = grade.name, pattern = pattern },
+  })
   settle(job)
 
   return true, nil

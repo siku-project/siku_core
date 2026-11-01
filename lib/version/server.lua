@@ -17,7 +17,12 @@ local function reportRelease(resource, currentVersion, release)
   local latest <const> = parseVersion(release.tag_name)
 
   if not latest then
-    Siku.print.warn(("Release '%s' of '%s' is not valid semver"):format(tostring(release.tag_name), resource))
+    Siku.log.warn('version.check_failed', ("Release '%s' of '%s' is not valid semver"):format(tostring(release.tag_name), resource), {
+      resource = resource,
+      reason = 'release_tag_invalid',
+      tag = tostring(release.tag_name),
+      current = currentVersion,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return
   end
 
@@ -28,17 +33,20 @@ local function reportRelease(resource, currentVersion, release)
   end
 
   if order < 0 then
-    Siku.print.warn(("A newer version of '%s' is available: %s, you are running %s\n%s"):format(
-      resource,
-      release.tag_name,
-      currentVersion,
-      tostring(release.html_url)
-    ))
+    Siku.log.warn('version.outdated', ("A newer version of '%s' is available: %s, you are running %s"):format(resource, release.tag_name, currentVersion), {
+      resource = resource,
+      current = currentVersion,
+      latest = release.tag_name,
+      url = tostring(release.html_url),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
 
     return
   end
 
-  Siku.print.success(("'%s' is up to date (%s)"):format(resource, currentVersion))
+  Siku.log.info('version.current', ("'%s' is up to date (%s)"):format(resource, currentVersion), {
+    resource = resource,
+    current = currentVersion,
+  }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
 end
 
 --- Handle the GitHub response, reporting every failure instead of dropping it.
@@ -49,29 +57,53 @@ end
 ---@param response string The raw response body.
 local function handleResponse(resource, currentVersion, repository, status, response)
   if status == HTTP_FORBIDDEN or status == HTTP_TOO_MANY then
-    Siku.print.warn(("Version check for '%s' hit the GitHub rate limit (HTTP %d)"):format(resource, status))
+    Siku.log.warn('version.check_failed', ("Version check for '%s' hit the GitHub rate limit (HTTP %d)"):format(resource, status), {
+      resource = resource,
+      reason = 'rate_limited',
+      repository = repository,
+      status = status,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return
   end
 
   if status == HTTP_NOT_FOUND then
-    Siku.print.debug(("No published release found for '%s', either none exists yet or the repository is missing or private"):format(repository))
+    Siku.log.debug('version.check_skipped', ("No published release found for '%s', either none exists yet or the repository is missing or private"):format(repository), {
+      resource = resource,
+      reason = 'no_release',
+      repository = repository,
+      status = status,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return
   end
 
   if status ~= HTTP_OK then
-    Siku.print.warn(("Version check for '%s' failed: GitHub returned HTTP %d for '%s'"):format(resource, status, repository))
+    Siku.log.warn('version.check_failed', ("Version check for '%s' failed: GitHub returned HTTP %d for '%s'"):format(resource, status, repository), {
+      resource = resource,
+      reason = 'http_error',
+      repository = repository,
+      status = status,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return
   end
 
   local decoded <const>, release <const> = pcall(json.decode, response)
 
   if not decoded or type(release) ~= 'table' then
-    Siku.print.warn(("Version check for '%s' received an unreadable response from GitHub"):format(resource))
+    Siku.log.warn('version.check_failed', ("Version check for '%s' received an unreadable response from GitHub"):format(resource), {
+      resource = resource,
+      reason = 'response_unreadable',
+      repository = repository,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return
   end
 
   if release.prerelease then
-    Siku.print.debug(("Latest release of '%s' is a prerelease, skipping"):format(resource))
+    Siku.log.debug('version.check_skipped', ("Latest release of '%s' is a prerelease, skipping"):format(resource), {
+      resource = resource,
+      reason = 'prerelease',
+      repository = repository,
+      tag = tostring(release.tag_name),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return
   end
 
@@ -85,24 +117,40 @@ local function checkRelease(repository)
   local resource <const> = Siku.name
 
   if not ENABLED then
-    Siku.print.debug(("Version check for '%s' is disabled by convar"):format(resource))
+    Siku.log.debug('version.check_skipped', ("Version check for '%s' is disabled by convar"):format(resource), {
+      resource = resource,
+      reason = 'disabled',
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   if type(repository) ~= 'string' or not repository:find('/') then
-    Siku.print.warn(("Version check for '%s' needs a repository shaped as 'owner/name'"):format(resource))
+    Siku.log.warn('version.check_failed', ("Version check for '%s' needs a repository shaped as 'owner/name'"):format(resource), {
+      resource = resource,
+      reason = 'repository_invalid',
+      repository = tostring(repository),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   local currentVersion <const> = GetResourceMetadata(resource, 'version', 0)
 
   if not currentVersion then
-    Siku.print.warn(("Unable to determine the version of '%s'"):format(resource))
+    Siku.log.warn('version.check_failed', ("Unable to determine the version of '%s'"):format(resource), {
+      resource = resource,
+      reason = 'version_missing',
+      repository = repository,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   if not parseVersion(currentVersion) then
-    Siku.print.warn(("'%s' declares an unreadable version '%s'"):format(resource, currentVersion))
+    Siku.log.warn('version.check_failed', ("'%s' declares an unreadable version '%s'"):format(resource, currentVersion), {
+      resource = resource,
+      reason = 'version_invalid',
+      repository = repository,
+      current = currentVersion,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 

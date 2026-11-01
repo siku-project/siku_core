@@ -12,12 +12,20 @@ local registry <const> = {}
 ---@return table? instance The keybind instance with its control methods, or nil when the options are rejected.
 local function addKeybind(options)
   if type(options) ~= 'table' or type(options.name) ~= 'string' or options.name == '' then
-    Siku.print.error('AddKeybind requires an options table with a non-empty name')
+    Siku.log.error('keybind.definition_invalid', 'AddKeybind requires an options table with a non-empty name', {
+      resource = Siku.name,
+      reason = 'options_invalid',
+      got = type(options),
+    }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
     return nil
   end
 
   if registry[options.name] then
-    Siku.print.error(("Keybind '%s' already exists"):format(options.name))
+    Siku.log.error('keybind.definition_invalid', ("Keybind '%s' already exists"):format(options.name), {
+      resource = Siku.name,
+      reason = 'already_exists',
+      keybind = options.name,
+    }, { entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } } })
     return nil
   end
 

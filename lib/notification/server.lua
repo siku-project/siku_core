@@ -8,7 +8,15 @@ local function isReady()
     return true
   end
 
-  Siku.print.warn(("'%s' is not started, the notification call was ignored"):format(NOTIFICATION_RESOURCE))
+  Siku.log.warn('dependency.missing', ("'%s' is not started, the notification call was ignored"):format(NOTIFICATION_RESOURCE), {
+    resource = Siku.name,
+    dependency = NOTIFICATION_RESOURCE,
+    call = 'notification',
+  }, {
+    entities = { { type = 'resource', id = NOTIFICATION_RESOURCE, role = 'subject', label = NOTIFICATION_RESOURCE } },
+    dedupe = tonumber((Siku.config.log.errors or {}).dedupeMs) or 5000,
+    key = NOTIFICATION_RESOURCE,
+  })
 
   return false
 end

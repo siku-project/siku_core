@@ -54,6 +54,10 @@ local function waitForDependencies(resource, dependencies)
 
     if absent then
       Siku.print.error(("[%s] Depends on '%s' which is not installed, migration skipped"):format(resource, absent))
+      Siku.log.error('migration.dependency_missing', ("Depends on '%s' which is not installed, migration skipped"):format(absent), {
+        resource = resource,
+        dependency = absent,
+      }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
       return false
     end
 
@@ -65,6 +69,11 @@ local function waitForDependencies(resource, dependencies)
 
     if GetGameTimer() >= deadline then
       Siku.print.error(("[%s] Gave up after %dms waiting on: %s"):format(resource, DEPENDENCY_TIMEOUT, table.concat(pending, ', ')))
+      Siku.log.error('migration.dependency_timeout', ("Gave up after %dms waiting on: %s"):format(DEPENDENCY_TIMEOUT, table.concat(pending, ', ')), {
+        resource = resource,
+        timeoutMs = DEPENDENCY_TIMEOUT,
+        pending = pending,
+      }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
       return false
     end
 
@@ -81,6 +90,10 @@ local function acquireLock(resource)
   while busy do
     if GetGameTimer() >= deadline then
       Siku.print.error(("[%s] Gave up waiting for the migration lock"):format(resource))
+      Siku.log.error('migration.lock_timeout', 'Gave up waiting for the migration lock', {
+        resource = resource,
+        timeoutMs = LOCK_TIMEOUT,
+      }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
       return false
     end
 
@@ -137,6 +150,11 @@ end
 local function runStatement(resource, sql, reason, description)
   if not sql then
     Siku.print.error(("[%s] Refused to build %s: %s"):format(resource, description, reason))
+    Siku.log.error('migration.statement_refused', ("Refused to build %s: %s"):format(description, reason), {
+      resource = resource,
+      element = description,
+      reason = reason,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
@@ -144,10 +162,19 @@ local function runStatement(resource, sql, reason, description)
 
   if not ok then
     Siku.print.error(("[%s] Failed to apply %s: %s"):format(resource, description, tostring(err)))
+    Siku.log.error('migration.statement_failed', ("Failed to apply %s: %s"):format(description, tostring(err)), {
+      resource = resource,
+      element = description,
+      error = tostring(err),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   Siku.print.success(("[%s] Applied %s"):format(resource, description))
+  Siku.log.info('migration.statement_applied', ("Applied %s"):format(description), {
+    resource = resource,
+    element = description,
+  }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
 
   return true
 end
@@ -211,16 +238,31 @@ end
 local function isValidTable(resource, tableDef, index)
   if type(tableDef) ~= 'table' then
     Siku.print.error(("[%s] Table at index %d must be a table"):format(resource, index))
+    Siku.log.error('migration.config_invalid', ("Table at index %d must be a table"):format(index), {
+      resource = resource,
+      reason = 'table_not_table',
+      index = index,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   if type(tableDef.name) ~= 'string' or tableDef.name == '' then
     Siku.print.error(("[%s] Table at index %d has no name"):format(resource, index))
+    Siku.log.error('migration.config_invalid', ("Table at index %d has no name"):format(index), {
+      resource = resource,
+      reason = 'table_unnamed',
+      index = index,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   if type(tableDef.columns) ~= 'table' or #tableDef.columns == 0 then
     Siku.print.error(("[%s] Table '%s' needs at least one column"):format(resource, tableDef.name))
+    Siku.log.error('migration.config_invalid', ("Table '%s' needs at least one column"):format(tableDef.name), {
+      resource = resource,
+      reason = 'table_without_columns',
+      table = tableDef.name,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
@@ -234,21 +276,38 @@ end
 local function isValidConfig(resource, config)
   if type(config) ~= 'table' then
     Siku.print.error(("[%s] Migration config must be a table, got %s"):format(resource, type(config)))
+    Siku.log.error('migration.config_invalid', ("Migration config must be a table, got %s"):format(type(config)), {
+      resource = resource,
+      reason = 'config_not_table',
+      got = type(config),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   if type(config.schema) ~= 'table' then
     Siku.print.error(("[%s] Migration config needs a schema table"):format(resource))
+    Siku.log.error('migration.config_invalid', 'Migration config needs a schema table', {
+      resource = resource,
+      reason = 'schema_missing',
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   if type(config.schema.version) ~= 'string' or config.schema.version == '' then
     Siku.print.error(("[%s] Migration schema needs a non-empty version"):format(resource))
+    Siku.log.error('migration.config_invalid', 'Migration schema needs a non-empty version', {
+      resource = resource,
+      reason = 'version_missing',
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
   if type(config.schema.tables) ~= 'table' then
     Siku.print.error(("[%s] Migration schema needs a tables list"):format(resource))
+    Siku.log.error('migration.config_invalid', 'Migration schema needs a tables list', {
+      resource = resource,
+      reason = 'tables_missing',
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false
   end
 
@@ -271,6 +330,9 @@ local function applySchema(resource, config)
 
   if not database then
     Siku.print.error(("[%s] Unable to read the database name, migration skipped"):format(resource))
+    Siku.log.error('migration.database_unknown', 'Unable to read the database name, migration skipped', {
+      resource = resource,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false, 0
   end
 
@@ -279,7 +341,10 @@ local function applySchema(resource, config)
   local alreadyApplied <const> = isVersionApplied(resource, schema.version)
 
   if alreadyApplied and not config.detectMissing then
-    Siku.print.debug(("[%s] Schema version %s is already applied"):format(resource, schema.version))
+    Siku.log.debug('migration.version_already_applied', ("Schema version %s is already applied"):format(schema.version), {
+      resource = resource,
+      version = schema.version,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return true, 0
   end
 
@@ -287,28 +352,56 @@ local function applySchema(resource, config)
   local total <const> = #missing.tables + #missing.columns + #missing.foreignKeys
 
   if alreadyApplied and total == 0 then
-    Siku.print.debug(("[%s] Schema version %s is applied and complete"):format(resource, schema.version))
+    Siku.log.debug('migration.schema_complete', ("Schema version %s is applied and complete"):format(schema.version), {
+      resource = resource,
+      version = schema.version,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return true, 0
   end
 
   if alreadyApplied then
     Siku.print.warn(("[%s] %d schema element(s) went missing, repairing"):format(resource, total))
+    Siku.log.warn('migration.schema_repairing', ("%d schema element(s) went missing, repairing"):format(total), {
+      resource = resource,
+      version = schema.version,
+      missing = total,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
   else
     Siku.print.info(("[%s] Applying schema version %s"):format(resource, schema.version))
+    Siku.log.info('migration.schema_applying', ("Applying schema version %s"):format(schema.version), {
+      resource = resource,
+      version = schema.version,
+      missing = total,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
   end
 
   local ok <const>, applied <const> = applyMissing(resource, missing)
 
   if not ok then
     Siku.print.error(("[%s] Migration stopped after %d statement(s), version %s not recorded"):format(resource, applied, schema.version))
+    Siku.log.error('migration.stopped', ("Migration stopped after %d statement(s), version %s not recorded"):format(applied, schema.version), {
+      resource = resource,
+      version = schema.version,
+      applied = applied,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false, applied
   end
 
   if not alreadyApplied then
     recordVersion(resource, schema.version)
     Siku.print.success(("[%s] Schema version %s applied, %d statement(s)"):format(resource, schema.version, applied))
+    Siku.log.info('migration.version_applied', ("Schema version %s applied, %d statement(s)"):format(schema.version, applied), {
+      resource = resource,
+      version = schema.version,
+      applied = applied,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
   else
     Siku.print.success(("[%s] Schema repaired, %d statement(s)"):format(resource, applied))
+    Siku.log.info('migration.schema_repaired', ("Schema repaired, %d statement(s)"):format(applied), {
+      resource = resource,
+      version = schema.version,
+      applied = applied,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
   end
 
   return true, applied
@@ -332,14 +425,18 @@ function Siku.migration.run(config)
   end
 
   if not config.enabled then
-    Siku.print.debug(("[%s] Auto-migration is disabled"):format(resource))
+    Siku.log.debug('migration.disabled', 'Auto-migration is disabled', {
+      resource = resource,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     completed[resource] = true
 
     return true, 0
   end
 
   if #config.schema.tables == 0 then
-    Siku.print.debug(("[%s] Migration schema declares no table"):format(resource))
+    Siku.log.debug('migration.schema_empty', 'Migration schema declares no table', {
+      resource = resource,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     completed[resource] = true
 
     return true, 0
@@ -359,6 +456,10 @@ function Siku.migration.run(config)
 
   if not protected then
     Siku.print.error(("[%s] Migration failed: %s"):format(resource, tostring(ok)))
+    Siku.log.error('migration.failed', ("Migration failed: %s"):format(tostring(ok)), {
+      resource = resource,
+      error = tostring(ok),
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false, 0
   end
 

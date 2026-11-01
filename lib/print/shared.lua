@@ -5,8 +5,8 @@ local MAX_DEPTH <const> = 4
 local CONVAR_LEVEL <const> = 'siku:logLevel'
 
 local LEVELS <const> = {
-  error = { severity = 1, label = 'ERROR', color = '^1', event = 'script.error', name = 'error' },
-  warn = { severity = 2, label = 'WARN', color = '^3', event = 'script.warning', name = 'warn' },
+  error = { severity = 1, label = 'ERROR', color = '^1' },
+  warn = { severity = 2, label = 'WARN', color = '^3' },
   success = { severity = 3, label = 'SUCCESS', color = '^2' },
   info = { severity = 3, label = 'INFO', color = '^5' },
   debug = { severity = 4, label = 'DEBUG', color = '^6' },
@@ -16,7 +16,6 @@ local configuredLevel <const> = GetConvar(CONVAR_LEVEL, DEFAULT_LEVEL)
 local resolvedLevel <const> = LEVELS[configuredLevel]
 local activeLevel <const> = resolvedLevel and configuredLevel or DEFAULT_LEVEL
 local activeSeverity <const> = LEVELS[activeLevel].severity
-local EMIT_EVENTS <const> = Siku.config.log.enabled ~= false and (Siku.config.log.print == nil or Siku.config.log.print.emit ~= false)
 
 local print <const> = {}
 
@@ -94,28 +93,15 @@ local function resolveSource()
   return GetInvokingResource() or Siku.name
 end
 
---- Record a warning or an error as a structured event, when enabled.
----@param level table The level descriptor.
----@param message string The formatted message.
-local function record(level, message)
-  if level.event and EMIT_EVENTS then
-    Siku.log.emit(level.event, { level = level.name, message = message })
-  end
-end
-
 --- Write a line to the console when its level passes the active filter.
 ---@param level table The level descriptor holding severity, label and color.
 ---@param ... any The values to log.
 local function write(level, ...)
-  local message <const> = formatArgs(...)
-
-  record(level, message)
-
   if level.severity > activeSeverity then
     return
   end
 
-  _G.print(('%s[%s] [%s]%s %s'):format(level.color, resolveSource(), level.label, RESET, message))
+  _G.print(('%s[%s] [%s]%s %s'):format(level.color, resolveSource(), level.label, RESET, formatArgs(...)))
 end
 
 --- Log a successful outcome.
@@ -161,11 +147,11 @@ function print.getLevel()
 end
 
 if not resolvedLevel then
-  print.warn(("Unknown log level '%s' in convar '%s', using '%s'"):format(
+  Siku.log.warn('print.level_unknown', ("Unknown log level '%s' in convar '%s', using '%s'"):format(
     configuredLevel,
     CONVAR_LEVEL,
     DEFAULT_LEVEL
-  ))
+  ), { configured = configuredLevel, convar = CONVAR_LEVEL, fallback = DEFAULT_LEVEL })
 end
 
 return print

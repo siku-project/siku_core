@@ -7,6 +7,11 @@ local FRAME_PATTERN <const> = '^%^3> (.-)%^7 %(%^5(.-)%^7[^:]*:(%d+)%)'
 local LOCATION_PATTERN <const> = '^(@[^:]+):(%d+): (.*)$'
 local LOAD_ERROR <const> = '^Error (%a+) script (%S+) in resource (%S+): (.*)$'
 local START_FAILED <const> = "^%^3Couldn't start resource (%S+)%.%^7"
+local NOT_FOUND <const> = "^%^3Couldn't find resource (%S+)%.%^7"
+local TRACEBACK_HEADER <const> = 'stack traceback:'
+local TRACEBACK_TAIL_CALLS <const> = '(...tail calls...)'
+local TRACEBACK_NATIVE <const> = '^%[C%]: '
+local TRACEBACK_LOCATION <const> = '^[^%s]+:%d+: in '
 local WARNING_LINE <const> = '^%^3Warning: (.*)%^7'
 local WARNING_PREFIX <const> = '^Warning: '
 local COLOR_CODE <const> = '%^%d'
@@ -18,6 +23,7 @@ local DRAIN_MS <const> = 100
 local MAX_INBOX <const> = 20000
 
 local internal <const> = _SikuInternal.log
+local settings <const> = internal.settings
 
 local partial <const> = {}
 local pending <const> = {}
@@ -35,6 +41,8 @@ local function warning(resource, message)
     message = message,
     data = { resource = resource },
     entities = { internal.resourceEntity(resource) },
+    dedupe = settings.dedupeMs,
+    key = resource .. '|' .. message,
   })
 end
 
@@ -49,6 +57,24 @@ local function scriptError(entry)
     stack = #entry.frames > 0 and table.concat(entry.frames, '\n') or nil,
     data = { resource = entry.resource },
     entities = { internal.resourceEntity(entry.resource) },
+    dedupe = settings.dedupeMs,
+    key = entry.resource .. '|' .. (location and (location .. ':' .. line) or entry.message),
+  })
+end
+
+local function loadError(entry)
+  local location <const>, line <const>, message <const> = entry.message:match(LOCATION_PATTERN)
+
+  Siku.log.system('script.load_error', {
+    level = 'fatal',
+    message = strip(message or entry.message),
+    file = location or entry.script,
+    line = tonumber(line),
+    stack = #entry.frames > 0 and table.concat(entry.frames, '\n') or nil,
+    data = { resource = entry.resource, script = entry.script, phase = entry.phase },
+    entities = { internal.resourceEntity(entry.resource) },
+    dedupe = settings.dedupeMs,
+    key = entry.resource .. '|' .. entry.script,
   })
 end
 
@@ -61,10 +87,15 @@ local function finish(resource)
 
   pending[resource] = nil
   pendingCount = pendingCount - 1
-  scriptError(entry)
+
+  if entry.phase then
+    loadError(entry)
+  else
+    scriptError(entry)
+  end
 end
 
-local function begin(resource, message)
+local function begin(resource, message, phase, script)
   finish(resource)
 
   if pendingCount >= MAX_PENDING then
@@ -72,18 +103,38 @@ local function begin(resource, message)
   end
 
   pendingCount = pendingCount + 1
-  pending[resource] = { resource = resource, message = message, frames = {}, at = GetGameTimer() }
+  pending[resource] = { resource = resource, message = message, phase = phase, script = script, frames = {}, at = GetGameTimer() }
+end
+
+local function tracebackFrame(line)
+  if line == TRACEBACK_HEADER or line == TRACEBACK_TAIL_CALLS then
+    return ''
+  end
+
+  if line:match(TRACEBACK_NATIVE) or line:match(TRACEBACK_LOCATION) then
+    return line
+  end
+
+  return nil
 end
 
 local function collectFrame(entry, line)
-  local name <const>, file <const>, number <const> = line:match(FRAME_PATTERN)
+  local frame
 
-  if not name then
+  if entry.phase then
+    frame = tracebackFrame(line)
+  else
+    local name <const>, file <const>, number <const> = line:match(FRAME_PATTERN)
+
+    frame = name and ('%s (%s:%s)'):format(name, file, number) or nil
+  end
+
+  if not frame then
     return false
   end
 
-  if #entry.frames < MAX_FRAMES then
-    entry.frames[#entry.frames + 1] = ('%s (%s:%s)'):format(name, file, number)
+  if frame ~= '' and #entry.frames < MAX_FRAMES then
+    entry.frames[#entry.frames + 1] = frame
   end
 
   entry.at = GetGameTimer()
@@ -109,6 +160,13 @@ local function scriptLine(resource, text)
     finish(resource)
   end
 
+  local phase <const>, script <const>, owner <const>, detail <const> = line:match(LOAD_ERROR)
+
+  if phase then
+    begin(owner or resource, detail, phase, script)
+    return
+  end
+
   local message <const> = line:match(WARNING_LINE)
 
   if message then
@@ -117,26 +175,26 @@ local function scriptLine(resource, text)
 end
 
 local function resourceLine(text)
-  local kind <const>, file <const>, resource <const>, message <const> = text:match(LOAD_ERROR)
-
-  if kind then
-    Siku.log.system('script.load_error', {
-      level = 'fatal',
-      message = strip(message),
-      file = file,
-      data = { resource = resource, phase = kind },
-      entities = { internal.resourceEntity(resource) },
-    })
-    return
-  end
-
   local failed <const> = text:match(START_FAILED)
 
   if failed then
     Siku.log.system('resource.start_failed', {
       level = 'error',
       message = ("Couldn't start resource %s"):format(failed),
+      data = { resource = failed, reason = 'failed' },
       entities = { internal.resourceEntity(failed) },
+    })
+    return
+  end
+
+  local missing <const> = text:match(NOT_FOUND)
+
+  if missing then
+    Siku.log.system('resource.start_failed', {
+      level = 'error',
+      message = ("Couldn't find resource %s"):format(missing),
+      data = { resource = missing, reason = 'not_found' },
+      entities = { internal.resourceEntity(missing) },
     })
   end
 end

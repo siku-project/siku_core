@@ -3,7 +3,7 @@ game 'gta5'
 
 author 'SIKU'
 description 'The core of the SIKU ecosystem.'
-version '1.6.2'
+version '1.7.0'
 
 name 'siku_core'
 
@@ -21,7 +21,6 @@ server_scripts {
   'config/connection.lua',
   'config/jobs.lua',
   'config/accounts.lua',
-  'config/licenses.lua',
   'server/init.lua',
   'server/classes/**/*.lua',
   'server/services/*.lua',
@@ -43,7 +42,6 @@ files {
   'config/version.lua',
   'config/jobs.lua',
   'config/accounts.lua',
-  'config/licenses.lua',
   'config/log.lua',
   'translations/*.lua',
 }

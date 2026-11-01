@@ -131,24 +131,40 @@ function Siku.licenses.register(definition)
   local normalized <const>, reason <const> = normalizeDefinition(definition)
 
   if not normalized then
-    Siku.print.error(('License registration from %q refused: %s'):format(resource, reason))
+    Siku.log.error('licenses.registration_refused', ('License registration from %q refused: %s'):format(resource, reason), {
+      resource = resource,
+      reason = reason,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false, reason
   end
 
   if not internal.waitReady() then
-    Siku.print.error(('License %q could not be registered: the registry never came up'):format(normalized.name))
+    Siku.log.error('licenses.registration_refused', ('License %q could not be registered: the registry never came up'):format(normalized.name), {
+      resource = resource,
+      license = normalized.name,
+      reason = 'not_ready',
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false, 'not_ready'
   end
 
   local existing <const> = state.byName[normalized.name]
 
   if existing and isHeldElsewhere(existing, resource) then
-    Siku.print.error(('License %q is owned by %q, registration from %q refused'):format(normalized.name, existing.resource, resource))
+    Siku.log.error('licenses.registration_refused', ('License %q is owned by %q, registration from %q refused'):format(normalized.name, existing.resource, resource), {
+      resource = resource,
+      license = normalized.name,
+      reason = 'owned_elsewhere',
+      owner = existing.resource,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false, 'owned_elsewhere'
   end
 
   if existing and existing.resource and existing.resource ~= resource then
-    Siku.print.warn(('License %q moves from %q to %q'):format(normalized.name, existing.resource, resource))
+    Siku.log.warn('licenses.moved', ('License %q moves from %q to %q'):format(normalized.name, existing.resource, resource), {
+      license = normalized.name,
+      from = existing.resource,
+      to = resource,
+    }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
   end
 
   local licenseId <const> = writeDefinition(normalized, existing, resource)
@@ -160,9 +176,17 @@ function Siku.licenses.register(definition)
 
   license.active = true
 
-  internal.audit(EVENT_REGISTERED, license.id, nil, nil, ('resource=%s'):format(resource))
   internal.emit(EVENT_REGISTERED, license.name, internal.publicLicense(license))
-  Siku.print.info(('License %q registered by %q'):format(license.name, resource))
+  Siku.log.info('licenses.registered', ('License %q registered by %q'):format(license.name, resource), {
+    license = license.name,
+    label = license.label,
+    resource = resource,
+  }, {
+    entities = {
+      { type = 'license', id = license.name, role = 'subject', label = license.label },
+      { type = 'resource', id = resource, role = 'subject', label = resource },
+    },
+  })
 
   return true, nil
 end
@@ -173,7 +197,10 @@ local function deactivateLicensesOf(resource)
       license.active = false
 
       internal.emit(EVENT_DEACTIVATED, license.name)
-      Siku.print.info(('License %q is dormant: %q stopped'):format(license.name, resource))
+      Siku.log.info('licenses.dormant', ('License %q is dormant: %q stopped'):format(license.name, resource), {
+        license = license.name,
+        resource = resource,
+      }, { entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     end
   end
 end
@@ -183,7 +210,7 @@ function _SikuInternal.InitLicenses()
 
   state.ready = true
 
-  Siku.print.success(('Licenses engine initialized with %d license(s)'):format(count))
+  Siku.log.info('licenses.ready', ('Licenses engine initialized with %d license(s)'):format(count), { licenses = count })
 end
 
 AddEventHandler('onResourceStop', function(resource)

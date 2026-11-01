@@ -84,31 +84,6 @@ local function resolveCharacterPermissions(charId)
   return perms
 end
 
---- Write an entry to the RBAC audit log.
----@param action string The action performed.
----@param targetType string The target type (e.g. 'character', 'role').
----@param targetId string The target identifier.
----@param performedBy? number The character ID of the performer.
----@param details? string Additional details.
-local function writeAuditLog(action, targetType, targetId, performedBy, details)
-  MySQL.query.await(
-    'INSERT INTO rbac_audit_log (action, target_type, target_id, performed_by, details) VALUES (?, ?, ?, ?, ?)',
-    { action, targetType, targetId, performedBy, details }
-  )
-
-  local entities <const> = { { type = targetType, id = targetId, role = 'target' } }
-
-  if performedBy then
-    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
-  end
-
-  Siku.log.audit('permissions.' .. action, {
-    message = ('%s %s %s%s'):format(action, targetType, tostring(targetId), details and (' ' .. details) or ''),
-    entities = entities,
-    data = { details = details },
-  })
-end
-
 --- Initialize the permission system (seed, cache, expired roles cleanup cron).
 function _SikuInternal.InitPermissions()
   _SikuInternal.SeedPermissions()
@@ -117,12 +92,16 @@ function _SikuInternal.InitPermissions()
   Siku.cron.create('*/5 * * * *', function()
     local result <const> = MySQL.query.await('DELETE FROM character_roles WHERE expires_at IS NOT NULL AND expires_at < NOW()')
     if result.affectedRows and result.affectedRows > 0 then
-      Siku.print.info(('Cleaned %d expired role(s)'):format(result.affectedRows))
+      Siku.log.info('permissions.expired_cleaned', ('Cleaned %d expired role(s)'):format(result.affectedRows), {
+        cleaned = result.affectedRows,
+      })
       _SikuInternal.InvalidateAllCharacters()
     end
   end)
 
-  Siku.print.success(('RBAC initialized with %d roles'):format(Siku.table.size(rolesMap)))
+  Siku.log.info('permissions.ready', ('RBAC initialized with %d roles'):format(Siku.table.size(rolesMap)), {
+    roles = Siku.table.size(rolesMap),
+  })
 end
 
 --- Check if a character has a specific permission.
@@ -207,8 +186,17 @@ function Siku.permissions.assignRole(charId, roleName, expiresIn, performedBy)
 
   _SikuInternal.InvalidateCharacter(charId)
 
-  writeAuditLog('role_assigned', 'character', tostring(charId), performedBy,
-    ('role=%s%s'):format(roleName, expiresAt and (' expires=' .. expiresAt) or ''))
+  local entities <const> = { { type = 'character', id = charId, role = 'target' } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('permissions.role_assigned', {
+    message = ('Role %s assigned to character %d%s'):format(roleName, charId, expiresAt and (' until ' .. expiresAt) or ''),
+    entities = entities,
+    data = { role = roleName, primary = role.is_primary == 1 or role.is_primary == true, expiresAt = expiresAt },
+  })
 
   return true
 end
@@ -231,7 +219,17 @@ function Siku.permissions.revokeRole(charId, roleName, performedBy)
 
   _SikuInternal.InvalidateCharacter(charId)
 
-  writeAuditLog('role_revoked', 'character', tostring(charId), performedBy, 'role=' .. roleName)
+  local entities <const> = { { type = 'character', id = charId, role = 'target' } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('permissions.role_revoked', {
+    message = ('Role %s revoked from character %d'):format(roleName, charId),
+    entities = entities,
+    data = { role = roleName },
+  })
 
   return true
 end
@@ -260,8 +258,17 @@ function Siku.permissions.createRole(name, label, isPrimary, inheritsFrom, perfo
 
   loadAndBuildCache()
 
-  writeAuditLog('role_created', 'role', name, performedBy,
-    ('label=%s primary=%s inherits=%s'):format(label, tostring(isPrimary), inheritsFrom or 'none'))
+  local entities <const> = { { type = 'role', id = name, role = 'target', label = label } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('permissions.role_created', {
+    message = ('Role %s created'):format(name),
+    entities = entities,
+    data = { role = name, label = label, primary = isPrimary == true, inherits = inheritsFrom },
+  })
 
   return rolesByName[name]
 end
@@ -278,7 +285,17 @@ function Siku.permissions.deleteRole(name, performedBy)
 
   loadAndBuildCache()
 
-  writeAuditLog('role_deleted', 'role', name, performedBy)
+  local entities <const> = { { type = 'role', id = name, role = 'target', label = role.label } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('permissions.role_deleted', {
+    message = ('Role %s deleted'):format(name),
+    entities = entities,
+    data = { role = name },
+  })
 
   return true
 end
@@ -312,7 +329,17 @@ function Siku.permissions.addPermissionToRole(roleName, permission, performedBy)
 
   rebuildPermissionCache()
 
-  writeAuditLog('permission_added', 'role', roleName, performedBy, 'permission=' .. permission)
+  local entities <const> = { { type = 'role', id = roleName, role = 'target', label = role.label } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('permissions.permission_added', {
+    message = ('Permission %s added to role %s'):format(permission, roleName),
+    entities = entities,
+    data = { role = roleName, permission = permission },
+  })
 
   return true
 end
@@ -338,7 +365,17 @@ function Siku.permissions.removePermissionFromRole(roleName, permission, perform
 
   rebuildPermissionCache()
 
-  writeAuditLog('permission_removed', 'role', roleName, performedBy, 'permission=' .. permission)
+  local entities <const> = { { type = 'role', id = roleName, role = 'target', label = role.label } }
+
+  if performedBy then
+    entities[#entities + 1] = { type = 'character', id = performedBy, role = 'actor' }
+  end
+
+  Siku.log.audit('permissions.permission_removed', {
+    message = ('Permission %s removed from role %s'):format(permission, roleName),
+    entities = entities,
+    data = { role = roleName, permission = permission },
+  })
 
   return true
 end

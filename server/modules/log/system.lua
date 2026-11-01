@@ -1,14 +1,81 @@
 local DROP_REASONS <const> = {
   [1] = 'resource', [2] = 'client', [3] = 'server', [4] = 'client_replaced', [5] = 'client_timeout',
-  [6] = 'server_timeout', [7] = 'server_shutdown', [8] = 'state_bag_rate_limit', [9] = 'net_event_rate_limit',
-  [10] = 'latent_net_event_rate_limit', [11] = 'command', [12] = 'one_sync_too_many_missed_frames', [13] = 'net_game_event',
+  [6] = 'client_timeout_pending_commands', [7] = 'server_shutdown', [8] = 'state_bag_rate_limit',
+  [9] = 'net_event_rate_limit', [10] = 'latent_net_event_rate_limit', [11] = 'command_rate_limit',
+  [12] = 'one_sync_too_many_missed_frames', [13] = 'net_game_event_rate_limit',
 }
+local DROP_KINDS <const> = {
+  client = 'quit', client_replaced = 'replaced', client_timeout = 'timeout', client_timeout_pending_commands = 'timeout',
+  server_shutdown = 'shutdown', state_bag_rate_limit = 'flood', net_event_rate_limit = 'flood',
+  latent_net_event_rate_limit = 'flood', command_rate_limit = 'flood', net_game_event_rate_limit = 'flood',
+  one_sync_too_many_missed_frames = 'freeze',
+}
+local DROP_LABELS <const> = {
+  quit = 'left', crash = 'crashed', timeout = 'timed out', freeze = 'stopped responding', kicked = 'was kicked',
+  banned = 'was banned', kicked_by_script = 'was dropped', replaced = 'reconnected from elsewhere',
+  shutdown = 'left, server shutting down', flood = 'was dropped for network abuse', switched = 'left for another server',
+  unknown = 'left',
+}
+local INTERNAL_DROPPER <const> = '^__cfx_internal:'
+local CRASH_PREFIX <const> = '^Game crashed'
+local BAN_PREFIX <const> = '^[Bb]ann'
+local KICK_PREFIX <const> = '^[Kk]ick'
+local SWITCH_REASON <const> = 'Connecting to another server.'
+local CLIENT_TIMEOUT_REASON <const> = 'Connection timed out.'
 local UNKNOWN_NAME <const> = 'Unknown'
+
+--- Classify a drop into something a human reads at a glance, from what
+--- FXServer gives: the drop reason code, the reason text and the dropper.
+---@param cause string The normalized drop reason.
+---@param reason string The reason text.
+---@param resourceName string? The resource that dropped the player, if any.
+---@return string kind quit, crash, timeout, freeze, kicked, banned, kicked_by_script, replaced, shutdown, flood, switched or unknown.
+local function dropKind(cause, reason, resourceName)
+  if reason:match(CRASH_PREFIX) then
+    return 'crash'
+  end
+
+  if cause == 'client' then
+    if reason == SWITCH_REASON then
+      return 'switched'
+    end
+
+    if reason == CLIENT_TIMEOUT_REASON then
+      return 'timeout'
+    end
+
+    return 'quit'
+  end
+
+  if cause == 'resource' or cause == 'server' then
+    if reason:match(BAN_PREFIX) then
+      return 'banned'
+    end
+
+    if reason:match(KICK_PREFIX) or cause == 'server' then
+      return 'kicked'
+    end
+
+    return 'kicked_by_script'
+  end
+
+  return DROP_KINDS[cause] or 'unknown'
+end
 
 local internal <const> = _SikuInternal.log
 local settings <const> = internal.settings
 
 local sessions <const> = {}
+local startedAt <const> = {}
+local bootedAt <const> = GetGameTimer()
+
+local function uptimeSeconds(resource)
+  local since <const> = startedAt[resource]
+
+  startedAt[resource] = nil
+
+  return since and math.floor((GetGameTimer() - since) / 1000) or nil
+end
 
 local function identifiers(sessionId)
   local all <const> = Siku.player.getIdentifiers(sessionId)
@@ -84,16 +151,21 @@ AddEventHandler('onResourceStart', function(resource)
     return
   end
 
+  startedAt[resource] = GetGameTimer()
+
   Siku.log.system('resource.started', {
     message = ('Resource %s started'):format(resource),
     entities = { internal.resourceEntity(resource) },
-    data = { version = GetResourceMetadata(resource, 'version', 0) },
+    data = { resource = resource, version = GetResourceMetadata(resource, 'version', 0) },
   })
 end)
 
 AddEventHandler('onResourceStop', function(resource)
   if resource == internal.CORE then
-    Siku.log.system('core.stopping', { message = 'siku_core is stopping' })
+    Siku.log.system('core.stopping', {
+      message = 'siku_core is stopping',
+      data = { version = GetResourceMetadata(internal.CORE, 'version', 0), uptimeSeconds = math.floor((GetGameTimer() - bootedAt) / 1000) },
+    })
     Siku.log.flush()
     return
   end
@@ -101,22 +173,45 @@ AddEventHandler('onResourceStop', function(resource)
   Siku.log.system('resource.stopped', {
     message = ('Resource %s stopped'):format(resource),
     entities = { internal.resourceEntity(resource) },
+    data = { resource = resource, version = GetResourceMetadata(resource, 'version', 0), uptimeSeconds = uptimeSeconds(resource) },
   })
 end)
 
 AddEventHandler('playerJoining', function(oldId)
   local sessionId <const> = source
   local name <const> = GetPlayerName(tostring(sessionId)) or UNKNOWN_NAME
+  local ids <const> = identifiers(sessionId)
+  local user <const> = ids.license and MySQL.single.await(
+    'SELECT id, total_playtime, created_at, last_seen, last_played_character FROM users WHERE license = ?',
+    { ids.license }
+  ) or nil
 
   local online <const>, capacity <const> = population(sessionId, true)
+  local entities <const> = { playerEntity(sessionId, name) }
 
-  sessions[sessionId] = { joinedAt = Siku.log.now(), name = name }
+  if user then
+    entities[#entities + 1] = { type = 'user', id = user.id, role = 'actor', label = name, session = sessionId }
+  end
+
+  sessions[sessionId] = { joinedAt = Siku.log.now(), name = name, userId = user and user.id or nil }
 
   Siku.log.system('player.joined', {
-    message = ('%s joined'):format(name),
+    message = ('%s joined%s'):format(name, user and '' or ', first visit'),
     source = sessionId,
-    entities = { playerEntity(sessionId, name) },
-    data = { identifiers = identifiers(sessionId), temporaryId = tonumber(oldId), online = online, capacity = capacity },
+    entities = entities,
+    data = {
+      identifiers = ids,
+      temporaryId = tonumber(oldId),
+      ping = GetPlayerPing(tostring(sessionId)),
+      firstVisit = user == nil,
+      userId = user and user.id or nil,
+      totalPlaytime = user and user.total_playtime or nil,
+      createdAt = user and user.created_at or nil,
+      lastSeen = user and user.last_seen or nil,
+      lastPlayedCharacter = user and user.last_played_character or nil,
+      online = online,
+      capacity = capacity,
+    },
   })
 end)
 
@@ -141,10 +236,27 @@ AddEventHandler('siku:server:createCharacterInstance', function(sessionId, chara
   end
 
   SetTimeout(0, function()
+    local rank <const> = characterData.user_id and MySQL.single.await(
+      'SELECT SUM(id <= ?) AS position, COUNT(*) AS total FROM characters WHERE user_id = ?',
+      { characterData.id, characterData.user_id }
+    ) or nil
+    local name <const> = session and session.characterName or ('character ' .. tostring(characterData.id))
+    local entities <const> = { playerEntity(sessionId, session and session.name or nil) }
+
+    if characterData.user_id then
+      entities[#entities + 1] = { type = 'user', id = characterData.user_id, role = 'actor', label = session and session.name or nil, session = sessionId }
+    end
+
     Siku.log.system('character.activated', {
-      message = ('%s entered play'):format(session and session.characterName or ('character ' .. tostring(characterData.id))),
+      message = rank and ('%s entered play, character %d of %d'):format(name, tonumber(rank.position) or 0, tonumber(rank.total) or 0) or ('%s entered play'):format(name),
       source = sessionId,
-      entities = { playerEntity(sessionId, session and session.name or nil) },
+      entities = entities,
+      data = {
+        characterId = characterData.id,
+        userId = characterData.user_id,
+        position = rank and tonumber(rank.position) or nil,
+        total = rank and tonumber(rank.total) or nil,
+      },
     })
   end)
 end)
@@ -154,18 +266,24 @@ AddEventHandler('playerDropped', function(reason, resourceName, dropReason)
   local session <const> = sessions[sessionId]
   local name <const> = GetPlayerName(tostring(sessionId)) or (session and session.name) or UNKNOWN_NAME
   local online <const>, capacity <const> = population(sessionId, false)
+  local text <const> = tostring(reason)
+  local cause <const> = DROP_REASONS[tonumber(dropReason) or 0] or 'unknown'
+  local dropper <const> = type(resourceName) == 'string' and not resourceName:match(INTERNAL_DROPPER) and resourceName or nil
+  local kind <const> = dropKind(cause, text, dropper)
+  local sessionSeconds <const> = session and math.floor((Siku.log.now() - session.joinedAt) / 1000) or nil
 
   sessions[sessionId] = nil
 
   Siku.log.system('player.dropped', {
-    message = ('%s left: %s'):format(name, tostring(reason)),
+    message = ('%s %s%s: %s'):format(name, DROP_LABELS[kind], dropper and (' by ' .. dropper) or '', text),
     source = sessionId,
     entities = droppedEntities(sessionId, session, name),
     data = {
-      reason = tostring(reason),
-      cause = DROP_REASONS[tonumber(dropReason) or 0] or 'unknown',
-      byResource = resourceName,
-      sessionSeconds = session and math.floor((Siku.log.now() - session.joinedAt) / 1000) or nil,
+      kind = kind,
+      reason = text,
+      cause = cause,
+      byResource = dropper,
+      sessionSeconds = sessionSeconds,
       identifiers = identifiers(sessionId),
       online = online,
       capacity = capacity,

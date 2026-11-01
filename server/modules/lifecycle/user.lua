@@ -4,12 +4,19 @@
 ---@return nil
 local function handleCreateUserInstance(sessionId, userData)
   if type(sessionId) ~= 'number' or type(userData) ~= 'table' then
-    Siku.print.error(T('lifecycle_invalid_payload'))
+    Siku.log.error('lifecycle.user_payload_invalid', T('lifecycle_invalid_payload'), {
+      sessionType = type(sessionId),
+      payloadType = type(userData),
+    })
     return
   end
 
   if not userData.id or not userData.license then
-    Siku.print.error(T('lifecycle_incomplete_data', sessionId))
+    Siku.log.error('lifecycle.user_data_incomplete', T('lifecycle_incomplete_data', sessionId), {
+      userId = userData.id,
+      hasLicense = userData.license ~= nil,
+      dropped = true,
+    }, { source = sessionId, entities = { { type = 'player', id = sessionId, role = 'subject' } } })
     DropPlayer(tostring(sessionId), T('lifecycle_setup_failed'))
     return
   end
@@ -21,13 +28,19 @@ local function handleCreateUserInstance(sessionId, userData)
   local user <const> = Siku.User.new(sessionId, userData)
 
   if not Siku.cache.addPlayer(user) then
-    Siku.print.error(T('lifecycle_cache_failed', userData.id, sessionId))
+    Siku.log.error('lifecycle.user_cache_failed', T('lifecycle_cache_failed', userData.id, sessionId), {
+      userId = userData.id,
+      dropped = true,
+    }, { source = sessionId, entities = { { type = 'user', id = userData.id, role = 'subject', session = sessionId } } })
     DropPlayer(tostring(sessionId), T('lifecycle_setup_failed'))
     return
   end
 
-  Siku.print.debug(('User %d cached for session %d'):format(userData.id, sessionId))
-  Siku.print.debug(Siku.cache.getPlayer(sessionId):toJSON())
+  Siku.log.debug('lifecycle.user_cached', ('User %d cached for session %d'):format(userData.id, sessionId), {
+    userId = userData.id,
+    lastPlayedCharacter = userData.last_played_character,
+    totalPlaytime = userData.total_playtime,
+  }, { source = sessionId, entities = { { type = 'user', id = userData.id, role = 'subject', session = sessionId } } })
 end
 
 --- Persists then clears the cached user of a player leaving the server.

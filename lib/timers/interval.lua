@@ -17,7 +17,16 @@ local function runTick(id, cb, args, hasArgs)
   end
 
   if not ok then
-    Siku.print.error(('Interval %d callback failed: %s'):format(id, tostring(err)))
+    Siku.log.error('timers.failed', ('Interval %d callback failed: %s'):format(id, tostring(err)), {
+      resource = Siku.name,
+      interval = id,
+      error = tostring(err),
+    }, {
+      outcome = 'failure',
+      entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } },
+      dedupe = tonumber((Siku.config.log.errors or {}).dedupeMs) or 5000,
+      key = tostring(id),
+    })
   end
 end
 

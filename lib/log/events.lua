@@ -1,4 +1,3 @@
-local DEFAULT_EVENT <const> = 'log'
 local EVENT_PATTERN <const> = '^[%l%d_]+[%l%d_%.]*$'
 local EVENT_MAX <const> = 96
 local OUTCOME_MAX <const> = 32
@@ -151,7 +150,11 @@ end
 local function leveled(level)
   local number <const> = LEVELS[level]
 
-  return function(message, data, options)
+  return function(event, message, data, options)
+    if type(event) ~= 'string' or not event:match(EVENT_PATTERN) then
+      error(('Siku.log.%s needs an event name shaped as domain.action'):format(level), 2)
+    end
+
     local opts = options
 
     if type(opts) ~= 'table' then
@@ -165,7 +168,16 @@ local function leveled(level)
       opts.data = data
     end
 
-    return emit(opts.event or DEFAULT_EVENT, opts, 'script'), number
+    if opts.file == nil then
+      local caller <const> = debug.getinfo(2, 'Sl')
+
+      if caller then
+        opts.file = caller.source
+        opts.line = caller.currentline
+      end
+    end
+
+    return emit(event, opts, 'script'), number
   end
 end
 
@@ -291,5 +303,7 @@ function log.stats()
 
   return { queued = queued, dropped = dropped, states = stateCount }
 end
+
+internal.emit = log.emit
 
 return log

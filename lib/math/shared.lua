@@ -97,7 +97,15 @@ end
 ---@return string formatted The formatted number string.
 function mathLib.formatWithSeparator(value, separator)
   if separator == DECIMAL_SEPARATOR and math.floor(value) ~= value then
-    Siku.print.warn(('formatWithSeparator: using "." as separator on a decimal number (%s) — may be ambiguous'):format(value))
+    Siku.log.warn('math.ambiguous_separator', ('formatWithSeparator: using "." as separator on a decimal number (%s), may be ambiguous'):format(value), {
+      resource = Siku.name,
+      value = value,
+      separator = separator,
+    }, {
+      entities = { { type = 'resource', id = Siku.name, role = 'subject', label = Siku.name } },
+      dedupe = tonumber((Siku.config.log.errors or {}).dedupeMs) or 5000,
+      key = 'formatWithSeparator',
+    })
   end
 
   local sign <const> = value < 0 and '-' or ''

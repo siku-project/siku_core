@@ -39,25 +39,6 @@ local function isPrimaryRole(role)
   return role.is_primary == 1 or role.is_primary == true
 end
 
---- Reports a refusal: a console warning, and a notification when a player asked.
----@param src number The caller's server id, or 0 for the console.
----@param key string The translation key of the reason.
----@param ... any The format arguments of the reason.
----@return nil
-local function refuse(src, key, ...)
-  local message <const> = T(key, ...)
-
-  Siku.print.warn(message)
-
-  if src ~= CONSOLE_SOURCE then
-    Siku.notification.show(src, {
-      type = 'error',
-      title = T('permissions_command_title'),
-      description = message,
-    })
-  end
-end
-
 --- Checks that a caller may apply a role to a character. The console may do
 --- anything. A player must outrank the target, unless the target is
 --- themselves, and may only hand out primary roles strictly below their own.
@@ -99,14 +80,64 @@ Siku.command.register('setrole', function(src, args)
   local character <const> = Siku.cache.getCurrentCharacter(targetSession)
 
   if not character then
-    refuse(src, 'permissions_no_character', targetSession)
+    local message <const> = T('permissions_no_character', targetSession)
+    local entities <const> = {}
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    if targetSession ~= src then
+      entities[#entities + 1] = { type = 'player', id = targetSession, role = 'target' }
+    end
+
+    Siku.log.warn('permissions.command_refused', message, {
+      command = 'setrole',
+      reason = 'no_character',
+      role = roleName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+
+    if src == CONSOLE_SOURCE then
+      Siku.print.warn(message)
+    else
+      Siku.notification.show(src, {
+        type = 'error',
+        title = T('permissions_command_title'),
+        description = message,
+      })
+    end
+
     return
   end
 
   local role <const> = findRole(roleName)
 
   if not role then
-    refuse(src, 'permissions_unknown_role', roleName)
+    local message <const> = T('permissions_unknown_role', roleName)
+    local entities <const> = { { type = 'character', id = character.id, role = 'target', session = targetSession } }
+
+    if src ~= CONSOLE_SOURCE then
+      entities[#entities + 1] = { type = 'player', id = src, role = 'actor' }
+    end
+
+    Siku.log.warn('permissions.command_refused', message, {
+      command = 'setrole',
+      reason = 'unknown_role',
+      role = roleName,
+      console = src == CONSOLE_SOURCE,
+    }, { outcome = 'denied', source = src ~= CONSOLE_SOURCE and src or nil, entities = entities })
+
+    if src == CONSOLE_SOURCE then
+      Siku.print.warn(message)
+    else
+      Siku.notification.show(src, {
+        type = 'error',
+        title = T('permissions_command_title'),
+        description = message,
+      })
+    end
+
     return
   end
 
@@ -114,7 +145,24 @@ Siku.command.register('setrole', function(src, args)
   local allowed <const>, reason <const> = canApply(src, performer, character, role)
 
   if not allowed then
-    refuse(src, reason, roleName)
+    local message <const> = T(reason, roleName)
+    local entities <const> = {
+      { type = 'character', id = character.id, role = 'target', session = targetSession },
+      { type = 'player', id = src, role = 'actor' },
+    }
+
+    Siku.log.warn('permissions.command_refused', message, {
+      command = 'setrole',
+      reason = (reason:gsub('^permissions_', '')),
+      role = roleName,
+      console = false,
+    }, { outcome = 'denied', source = src, entities = entities })
+    Siku.notification.show(src, {
+      type = 'error',
+      title = T('permissions_command_title'),
+      description = message,
+    })
+
     return
   end
 
@@ -155,9 +203,9 @@ Siku.command.register('setrole', function(src, args)
   local messageKey <const> = removed and 'permissions_role_removed' or 'permissions_role_applied'
   local message <const> = T(messageKey, roleName, character.id)
 
-  Siku.print.info(message)
-
-  if src ~= CONSOLE_SOURCE then
+  if src == CONSOLE_SOURCE then
+    Siku.print.info(message)
+  else
     Siku.notification.show(src, {
       type = 'success',
       title = T('permissions_command_title'),

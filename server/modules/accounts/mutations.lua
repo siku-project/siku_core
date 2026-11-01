@@ -231,7 +231,12 @@ function Siku.accounts.apply(mutations, context)
 
   if not written then
     internal.unlock(ids)
-    Siku.print.error(('Accounts batch %s from %q was not written'):format(batch, resource))
+    Siku.log.error('accounts.batch_failed', ('Accounts batch %s from %q was not written'):format(batch, resource), {
+      batch = batch,
+      resource = resource,
+      accounts = ids,
+      reason = normalizedContext.reason,
+    }, { outcome = 'failure', entities = { { type = 'resource', id = resource, role = 'subject', label = resource } } })
     return false, 'write_failed', nil
   end
 

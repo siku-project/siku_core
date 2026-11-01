@@ -199,4 +199,8 @@ Siku = setmetatable({
   config = setmetatable({}, { __index = resolveConfig }),
 }, { __index = resolve })
 
+if context == 'client' then
+  resolve(Siku, 'log')
+end
+
 T = Siku.locale.translate
